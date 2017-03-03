@@ -1,9 +1,13 @@
-var express = require('express');
-var app = express();
+import 'aframe';
+import jsHue from './jshue';
 
 
-app.use(express.static('public'));
+var hue = jsHue();
+var bridge = hue.bridge('192.168.2.17');
+var user = bridge.user('lampe-bash');
 
-app.listen(3000, function () {
-  console.log('Example app listening on port 3000!')
-})
+
+user.getConfig().then(config => {console.log(config)}).catch((err) => {console.log(err);})
+
+user.getLight(1).then((state) => {console.log(state);});
+user.getLights().then((lights) => {console.log(lights);})

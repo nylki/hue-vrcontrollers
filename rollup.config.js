@@ -26,7 +26,7 @@ export default {
       })
     ],
     
-  entry: 'public/index.js',
-  dest: 'public/index.bundle.js',
+  entry: 'index.js',
+  dest: 'index.bundle.js',
   format: 'iife'
 };
