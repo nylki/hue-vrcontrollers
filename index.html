@@ -3,23 +3,47 @@
 <head>
 	<meta charset="utf-8">
 	<title></title>
+	<style media="screen">
+		#app {
+			width: 300px;
+			height: 300px;
+		}
+		.hidden {
+			/*display: none;*/
+		}
+		
+		#lightlist {
+			display: flex;
+			flex-direction: column;
+		}
+	</style>
+	
+
+
 </head>
 
 <body>
 	
 	<div id="app">
 		
-		<a-scene>
+		<template v-for="light in lights">
+		 <span>{{light.name}}</span><br>
+		 
+	 	</template>
+		<span>{{foo}}</span>
+		<a-scene class="hidden">
 			<a-sky color="#ECECEC"></a-sky>
-			<a-sphere radius="2" color="red" position="1 1 -5"></a-sphere>
+			<a-sphere id="12345" on-hover radius="2" color="red" position="1 1 -5"></a-sphere>
 			
 			<a-entity tracked-controls="controller: 0; idPrefix: OpenVR"></a-entity>
 			<a-entity tracked-controls="controller: 1; idPrefix: OpenVR"></a-entity>
+			
+			<a-plane color="rgb(119, 119, 119)" height="100" width="100" rotation="-90 0 0"></a-plane>
+				
 		</a-scene>
 		
 	</div>
-	
 	<script src="index.bundle.js" charset="utf-8"></script>
-	
+	<script src="node_modules/aframe/dist/aframe-master.js" charset="utf-8"></script>
 </body>
 </html>
