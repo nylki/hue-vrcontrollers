@@ -12,7 +12,6 @@ export default {
     }),
     globals(),
     builtins(),
-    babel(),
     nodeResolve({
 
     }),
@@ -33,6 +32,7 @@ export default {
           // of a module in node_modules
         }
       }),
+      babel()
 
     ],
     

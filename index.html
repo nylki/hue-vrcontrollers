@@ -2,47 +2,75 @@
 <html>
 <head>
 	<meta charset="utf-8">
+	<script src="/node_modules/aframe/dist/aframe-master.js"></script>
+	<script src="/node_modules/aframe-controller-cursor-component/dist/aframe-controller-cursor-component.js" charset="utf-8"></script>
+
+	
+</head>
 	<title></title>
 	<style media="screen">
-		#app {
-			width: 300px;
-			height: 300px;
-		}
-		.hidden {
-			/*display: none;*/
-		}
-		
-		#lightlist {
-			display: flex;
-			flex-direction: column;
-		}
+	a-scene {
+		width: 300px;
+		height: 300px;
+	}
+	.hidden {
+		/*display: none;*/
+	}
+	
+	#lightlist {
+		display: flex;
+		flex-direction: column;
+	}
 	</style>
 	
-
-
+	
+	
 </head>
 
 <body>
 	
 	<div id="app">
+			<div class="lightList">
+				<template v-for="light in lights">
+					<span :style="{backgroundColor:light.color}">{{light.name}}</span><span>{{light.position}}</span><span>{{light.color}}</span><button type="button" v-on:click=>position with controller</button>
+					<br><br>
+				</template>
+			</div>
 		
-		<template v-for="light in lights">
-		 <span>{{light.name}}</span><br>
-		 
-	 	</template>
-		<span>{{foo}}</span>
-		<a-scene class="hidden">
-			<a-sky color="#ECECEC"></a-sky>
-			<a-sphere id="12345" on-hover radius="2" color="red" position="1 1 -5"></a-sphere>
-			
-			<a-entity tracked-controls="controller: 0; idPrefix: OpenVR"></a-entity>
-			<a-entity tracked-controls="controller: 1; idPrefix: OpenVR"></a-entity>
-			
-			<a-plane color="rgb(119, 119, 119)" height="100" width="100" rotation="-90 0 0"></a-plane>
+			<a-scene embedded debug>
+				<a-camera>
+						<!-- <a-entity id="raycaster" raycaster="objects: .lights"></a-entity> -->
+						<a-entity cursor="fuse: true; fuseTimeout: 1000"
+						position="0 0 -1"
+						geometry="primitive: ring; radiusInner: 0.02; radiusOuter: 0.03"
+						material="color: black; shader: flat">
+					</a-entity>
+				</a-camera>
+				<!-- <a-entity camera="userHeight: 1.6" look-controls wasd-controls>
+					
+				</a-entity> -->
+
 				
-		</a-scene>
+				<a-sky color="#ECECEC"></a-sky>
+				<template v-for="light in lights">
+					<a-text :value="light.name" :position="light.position | stringPos"></a-text>
+					<a-sphere class="lights" :number="light.number" :id="light.uuid" radius="0.2" :color="light.color" :position="light.position | stringPos" v-on:mouseenter="hoverLight($event, light)"
+					v-on:mouseleave="hoverLight($event, light)"
+					v-on:click="toggleLight($event, light)"></a-sphere>
+				</template>
+
+				<a-entity id="rightHand" v-on:axismove="axismove($event)" hand-controls="right" controller-cursor>
+				</a-entity>
+				<a-entity id="leftHand" v-on:axismove="axismove($event)" hand-controls="left" controller-cursor>
+				</a-entity>
+				
+				<a-plane color="rgb(119, 119, 119)" height="100" width="100" rotation="-90 0 0"></a-plane>
+				
+			</a-scene>
+		
 		
 	</div>
+	
 	<script src="index.bundle.js" charset="utf-8"></script>
 	<script src="node_modules/aframe/dist/aframe-master.js" charset="utf-8"></script>
 </body>
