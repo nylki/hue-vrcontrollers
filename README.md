@@ -1,9 +1,9 @@
-# hue-vrcontrollers
+# hue-vrcontrollers (WIP)
 Control your hue lights with vive/oculus controllers.
 You won't need your headset while setup/controlling, only your tracked hand controllers.
 
 ## HowTo
-
+**WIP**
 - choose your bridge or enter bridge ip if automatic bridge discovery fails
 
 - grab your vive/oculus controller, go to the first light you want to configure and pull the trigger, while touching the lamp as close as possible
