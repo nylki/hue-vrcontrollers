@@ -12190,28 +12190,72 @@ var chroma = createCommonjsModule(function (module, exports) {
   }).call(this);
 });
 
-var lightList = document.getElementById('lightlist');
-
-var hue = jsHue();
-var bridge = hue.bridge('192.168.1.17');
-var user = bridge.user('lampe-bash');
+const hue = jsHue();
 
 let app = new Vue$3$1({
 	el: '#app',
 	data: {
-		lights: [{ uuid: '12949233A', number: 5, position: { x: 3, y: 2, z: 1 }, name: 'unterwegs', color: "brown" }, { uuid: '1294923B', number: 6, position: { x: 1, y: 3, z: -1 }, name: 'test', color: "brown" }],
-		foo: 'bar'
+		lights: [
+			// {name: 'unterwegs', number: 5, position: {x: 1, y:2, z:5}, color:'red'}
+		]
 	},
 	watch: {},
 	filters: {
 		stringPos: ({ x, y, z }) => `${x} ${y} ${z}`
 	},
+
+	created: function () {
+
+		this.bridge = hue.bridge('192.168.1.17');
+		this.hueUser = this.bridge.user('lampe-bash');
+		this.hueUser.getConfig().then(config => {
+			console.log(config);
+		}).catch(err => {
+			console.log(err);
+		});
+
+		this.hueUser.getLights().then(lights_ => {
+			if (Object.keys(lights_).length === 0) {
+				console.error('No lights found!');
+			}
+			// Transform object coming from hue bridge to proper array
+			// and save index/light number for later reference
+			for (let index in lights_) {
+				let light = lights_[index];
+				light.number = parseInt(index);
+				light.color = 'blue';
+				light.position = { x: 0, y: 0, z: 0 };
+				this.lights.push(light);
+			}
+			console.log(JSON.stringify(this.lights));
+		});
+	},
+
 	methods: {
-		togglePosition: function (evt, light) {},
+
+		setupLight: function (evt, light) {
+			console.log('set up', light);
+			this.setupLightMode = true;
+			this.lightToSetup = light;
+			console.log(this.lightToSetup);
+		},
+
+		controllerClick: function (evt) {
+			console.log('controller click');
+
+			if (this.setupLightMode && this.lightToSetup) {
+				console.log('ok!');
+				console.log(evt.target.getAttribute('position'));
+				// Set the lights position to controllers position
+				this.lightToSetup.position = evt.target.getAttribute('position');
+				this.setupLightMode = false;
+				this.lightToSetup = undefined;
+			}
+		},
 
 		toggleLight: function (evt, light) {
-			return user.getLight(light.number).then(({ state }) => {
-				return user.setLightState(light.number, { on: !state.on });
+			return this.hueUser.getLight(light.number).then(({ state }) => {
+				return this.hueUser.setLightState(light.number, { on: !state.on });
 			});
 		},
 		axismove: function (evt, el) {
@@ -12231,91 +12275,16 @@ let app = new Vue$3$1({
 
 				intersected.color = color;
 			}
-
-			// 		// console.log(res);
 		},
 
 		hoverLight: function (evt, light) {
-			// console.log(e);
-			// console.log(e);
-			// console.log(e.detail.els);
-			console.log('\n\n\n');
-			console.log(evt);
-			console.log(light);
+			console.log('hover light');
 			light.color = light.color === 'fuchsia' ? 'blue' : 'fuchsia';
-			// user.setLightState(light.number, {alert: 'select'}).then((res) => {
-			// 	// console.log(res);
-			// })
-			// console.log(e.detail);
-			// console.log(this.lights);
-			// let el = e.detail.el || e.detail.els[0];
-			// console.log(el.components);
-			// let number_ = e.detail.target.getAttribute('number');
-			// console.log(this.lights.filter(({number}) => number === number_));
-			// // // console.log(el);
-			// // // console.log(el);
-			// // setTimeout(() => {
-			// // 	let glColor = el.components.material.material.color;
-			// // 	glColor = [glColor.r, glColor.g, glColor.b];
-			// // 	glColor.forEach(hueGammaCorrection);
-			// // 	let xy = hueGlToXY(glColor);
-			// // 	console.log(xy);
-			//
-			// 	user.setLightState(el.getAttribute('number'),{alert: 'select'}).then((res) => {
-			// 		// console.log(res);
-			// 	})
+			if (evt.type === 'mouseenter') {
+				this.hueUser.setLightState(light.number, { alert: 'select' });
+			}
 		}
 	}
 });
-
-//
-function init() {
-	user.getConfig().then(config => {
-		console.log(config);
-	}).catch(err => {
-		console.log(err);
-	});
-	app.foo = 'blub';
-	user.getLights().then(_lights => {
-		if (Object.keys(_lights).length === 0) {
-			console.error('No lights found!');
-		}
-		console.log(_lights);
-		let leftHand = document.getElementById('leftHand');
-		let rightHand = document.getElementById('rightHand');
-		console.log(leftHand, rightHand);
-		let raycaster = document.getElementById('raycaster');
-		// console.log(raycaster);
-		// setInterval(() => {
-		// 	console.log(raycaster.components.raycaster.intersectedEls);
-		// }, 1000);
-		// raycaster.addEventListener('raycaster-intersection', handleHover);
-		// raycaster.addEventListener('raycaster-intersection-cleared', handleHover);
-
-		// leftHand.addEventListener('gripdown', function (e) {
-		// 	user.setLightState(5, { on: false }).then(data => {});
-		// });
-		//
-		// leftHand.addEventListener('axismove', function (e) {
-		// 	console.log(e);
-		// });
-		//
-		// leftHand.addEventListener('gripup', function (e) {
-		// 	user.setLightState(5, { on: true }).then(data => {
-		// 	});
-		// });
-
-		rightHand.addEventListener('gripdown', function (e) {
-			// process response data, do other things
-		});
-	});
-
-	// app.lights = _lights;
-}
-
-init();
-// setTimeout(() => {
-// 	startLightSetup()
-// }, 10000);
 
 }());
