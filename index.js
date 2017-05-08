@@ -28,7 +28,13 @@ let app = new Vue({
 
 	created: async function () {
 
-
+		// TODO: use saved bridge IP if it exists.
+		// if(idbKeyval.has('bridgeAddress')) {
+		//		idbKeyval.get('bridgeAddress').then((bridgeAddress) => {
+		//			this.bridgeAddress = bridgeAddress;
+		//		})
+		// } else {}
+		
 		hue.discover().then(bridges => {
 		    if(bridges.length === 0) {
 		        console.log('No bridges found. :(');
@@ -56,6 +62,7 @@ let app = new Vue({
 			.then(config => {
 				console.log(config);
 				this.bridgeConnected = true;
+				idbKeyval.set('bridgeAddress', this.bridgeAddress);
 				return this.pullLights();
 			})
 			.catch((err) => {
