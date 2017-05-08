@@ -2,7 +2,7 @@
   "presets": [
     ["env", {
       "targets": {
-        "chrome": 55
+        "chrome": 53
       },
       "modules": false,
       "loose": true

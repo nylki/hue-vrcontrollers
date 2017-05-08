@@ -38,5 +38,6 @@ export default {
     
   entry: 'index.js',
   dest: 'index.bundle.js',
-  format: 'iife'
+  format: 'iife',
+  sourceMap: true
 };

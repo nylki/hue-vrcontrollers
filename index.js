@@ -1,71 +1,161 @@
 import jsHue from './jshue';
 import Vue from 'vue';
 import chroma from 'chroma-js';
+import idbKeyval from 'idb-keyval';
+
 
 const hue = jsHue();
-
 
 let app = new Vue({
   el: '#app',
   data: {
-		lights: [
-			// {name: 'unterwegs', number: 5, position: {x: 1, y:2, z:5}, color:'red'}
-		]
+		lights: [],
+		configuredLights: [],
+		lastSync: new Date(),
+		syncTimeout: null,
+		manualBridgeSetup: false,
+		bridgeAddress: '',
+		bridgeConnected: false,
+		bridgeError: 'hello!'
   },
 	watch: {
-
+		
 	},
 	filters: {
 		stringPos: ({x, y, z}) => `${x} ${y} ${z}`
 	},
 	
-	created: function () {
-		
-		this.bridge = hue.bridge('192.168.1.17');
-		this.hueUser = this.bridge.user('lampe-bash');
-		this.hueUser.getConfig()
-		.then(config => {console.log(config)})
-		.catch((err) => {console.log(err);})
 
-		this.hueUser.getLights().then((lights_) => {
-			if(Object.keys(lights_).length === 0) {
-				console.error('No lights found!');
-			}
-			// Transform object coming from hue bridge to proper array
-			// and save index/light number for later reference
-			for (let index in lights_) {
-				let light = lights_[index];
-				light.number = parseInt(index);
-				light.color = 'blue';
-				light.position = {x:0, y:0, z:0}
-				this.lights.push(light);
-			}
-			console.log(JSON.stringify(this.lights));
-			
+	created: async function () {
+
+
+		hue.discover().then(bridges => {
+		    if(bridges.length === 0) {
+		        console.log('No bridges found. :(');
+						this.bridgeError = 'No bridges found. Try entering the address manually.';
+						this.manualBridgeSetup = true;
+		    }
+		    else {
+					this.bridgeAddress = bridges[0].internalipaddress;
+					return this.connectBridge();
+		    }
+		}).catch(e => {
+			this.manualBridgeSetup = true;
+			console.log('Error finding bridges', e)
 		});
+		
+		
 	},
 	
-  methods: {
-		
-    setupLight: function (evt, light) {
-			console.log('set up', light);
-			this.setupLightMode = true;
-			this.lightToSetup = light;
-			console.log(this.lightToSetup);
+	
+	methods: {
+	connectBridge: function () {
+		this.bridge = hue.bridge(this.bridgeAddress);
+		this.hueUser = this.bridge.user('lampe-bash');
+			return this.hueUser.getConfig()
+			.then(config => {
+				console.log(config);
+				this.bridgeConnected = true;
+				return this.pullLights();
+			})
+			.catch((err) => {
+				console.log('Error getting config from bridge');
+				console.log(err);
+				this.bridgeError = 'Error connecting to brige. Are you sure the IP-Address of your bridge is correct?';
+			})
 		},
 		
+		resetConfiguration: function () {
+			idbKeyval.delete('configuredLights');
+		},
+		
+		pullLights: async function () {
+			// Initially get all lights from indexedDB and Hue Bridge.
+			
+			let storedPromise = idbKeyval.get('configuredLights');
+			let bridgePromise = this.hueUser.getLights();
+			let [storedLights=[], bridgeLights] = await Promise.all([storedPromise, bridgePromise]);
+			console.log(storedLights, bridgeLights);
+			if(Object.keys(bridgeLights).length === 0) {
+				console.error('No lights found @ configured bridge!');
+			}
+			
+			// Merge Bridge light info into position light info
+			for (let index in bridgeLights) {
+				
+				let light = bridgeLights[index];
+				let storedLight = storedLights.find((light_) => light.uniqueid === light_.uniqueid);
+				
+				if(storedLight) {
+					light = Object.assign(light, storedLight);
+					this.configuredLights.push(light);
+				} else {
+					light.position = {};
+				}
+				light.number = parseInt(index);
+				this.lights.push(light);
+			}
+
+		},
+		syncLights: function () {
+			clearTimeout(this.syncTimeout);
+			this.syncTimeout = null;
+			this.lastSync = new Date();
+			for (let light of this.configuredLights) {
+				if(!light.changed) continue; // don't change light state for non-changed lights
+				this.hueUser.setLightState(light.number, {xy: light.state.xy});
+			}
+			
+		},
+		
+		queueSyncLights: function () {
+			
+			// Check if a timeout to sync is already scheduled, if there is wait for it
+			// otherwise try to sync lights now or schedule a timeout for soonish execution
+			if(syncTimeout === null) {
+				
+				let now = new Date();
+				let diff = now - this.lastSync;
+				if(diff >= 100) {
+					// Only set light state if 100ms have passed since last sync with bridge
+					this.syncLights();
+				} else {
+					// Last update was less than 100ms ago, create a  recursive timeout instead
+					this.syncTimeout = setTimeout(this.syncLights.bind(this), 100 - diff);
+				}
+			}
+			
+			
+		},
+		
+		
+    configureLight: function (evt, light) {
+			console.log('set up', light);
+			this.configureLightMode = true;
+			this.lightToConfigure = light;
+			console.log(this.lightToConfigure);
+		},
+
 		controllerClick: function (evt) {
 			console.log('controller click');
 
-			if(this.setupLightMode && this.lightToSetup) {
-				console.log(evt.target.getAttribute('position'));
+			if(this.configureLightMode && this.lightToConfigure !== undefined) {
 				// Set the lights position to controllers position
-				this.lightToSetup.position = evt.target.getAttribute('position');
-				this.setupLightMode = false;
-				this.lightToSetup = undefined;
+				this.lightToConfigure.position = evt.target.getAttribute('position');
+				
+				// If light has not been configured yet, add it to the configuredLights list
+				if(!this.configuredLights.some(light => light.number === this.lightToConfigure.number)) {
+					this.lightToConfigure.changed = false;
+					this.configuredLights.push(this.lightToConfigure);
+				}
+				
+				console.log('configured lights');
+				idbKeyval.set('configuredLights', this.configuredLights);
+				this.configureLightMode = false;
+				this.lightToConfigure = undefined;
 			}
 		},
-		
+
 		toggleLight: function (evt, light) {
 			return this.hueUser.getLight(light.number).then(({state}) => {
 				return this.hueUser.setLightState(light.number, {on: !state.on});
@@ -77,26 +167,50 @@ let app = new Vue({
 			let vec = new THREE.Vector2(axis[0], axis[1]);
 			let angle = vec.angle() * 180/Math.PI;
 			// console.log(angle);
-			let color = chroma.hsv(angle, 0.9, 0.9).hex();
-			let selected = evt.detail.target.components.raycaster.intersectedEls;
-			if(selected.length !== 0) {
-				console.log(selected);
-				console.log(selected[0].getAttribute('number'));
-				let intersected = this.lights.filter(({number}) => {
-					return number === parseInt(selected[0].getAttribute('number'))
-				})[0];
-
-				intersected.color = color;
-			}
+			let [h, s, v] = chroma.hsv(angle, 0.9, 0.9).hsv();
 			
+			let hsb = {hue: h * (65535 / 360), sat: s * 255, bri: v * 255};
+			
+			let selected = evt.detail.target.components.raycaster.intersectedEls;
+
+			if(selected.length !== 0) {
+
+				let intersected = this.configuredLights.find(({number}) => {
+					return number === parseInt(selected[0].getAttribute('number'))
+				});
+				// console.log(intersected);
+				console.log(hsb);
+				intersected.state.hue = hsb.hue;
+				// intersected.state.sat = hsb.sat;
+				// intersected.state.bri = hsb.bri;
+
+				this.queueSyncLights(); // IDEA: Perhaps move this to a watcher that watches this.configuredLights
+			}
+
 		},
-		
-		hoverLight: function (evt, light) {
+
+		hoverLight: async function (evt, light) {
 			console.log('hover light');
-			light.color = light.color === 'fuchsia' ? 'blue' : 'fuchsia';
+			
+			// let state = await this.hueUser.getLight(light.number);
+				// console.log(evt.type);
 				if(evt.type === 'mouseenter') {
-					this.hueUser.setLightState(light.number, {alert: 'select'});
+					
+					light.previousColor = {
+						hue: light.state.bri,
+						sat: light.state.sat,
+						bri: light.state.bri
+					}
+					// Create subtle hover effect by dimming up/down
+					light.state.bri = light.state.bri <= 245 ? light.state.bri + 10 : light.state.bri - 10;
+					
+				} else if (evt.type === 'mouseleave') {
+					// Restore previous light if not changed.
+					if(!light.changed) {
+						light.state.bri = light.previousColor.bri;
+					}
 				}
+				this.queueSyncLights();
 
 		}
   }
@@ -117,14 +231,40 @@ function hueGammaCorrection(value) {
 	return (value > 0.04045) ? Math.pow((value + 0.055) / (1.0 + 0.055), 2.4) : (value / 12.92);
 }
 
-function hueGlToXY([r, g, b]) {
-	let X = r * 0.664511 + g * 0.154324 + b * 0.162028;
-	let Y = r * 0.283881 + g * 0.668433 + b * 0.047685;
-	let Z = r * 0.000088 + g * 0.072310 + b * 0.986039;
-	let x = X / (X + Y + Z);
-	let y = Y / (X + Y + Z);
+function hueReverseGammaCorrection(value) {
+	return (value <= 0.0031308) ? 12.92 * value : (1.0 + 0.055) * Math.pow(value, (1.0 / 2.4)) - 0.055;
+}
+
+
+
+function hueGlToXY(rgb) {
+	rgb = rgb.map(hueGammaCorrection);
+	let [r, g, b] = rgb;
+	let x = r * 0.664511 + g * 0.154324 + b * 0.162028;
+	let y = r * 0.283881 + g * 0.668433 + b * 0.047685;
+	let z = r * 0.000088 + g * 0.072310 + b * 0.986039;
+	x = x / (x + y + z);
+	y = y / (x + y + z);
 	return [x,y];
 }
+
+function hueXYtoGl([x, y]) {
+	let z =  1.0 - x - y;
+	
+	let y_ = 1.0;//brightness
+	let x_ = (y / y_) * x;
+	let z_ = (y_ / y) * z;
+	
+	let r =  x_ * 1.656492 - y_ * 0.354851 - z_ * 0.255038;
+	let g = -x_ * 0.707196 + y_ * 1.655397 + z_ * 0.036152;
+	let b =  x_ * 0.051713 - y_ * 0.121364 + z_ * 1.011530;
+
+	return [r, g, b].map(hueReverseGammaCorrection);
+}
+
+
+
+
 
 function addIndex(light, index) {
 	light.index = index;

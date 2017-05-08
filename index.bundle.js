@@ -12190,66 +12190,280 @@ var chroma = createCommonjsModule(function (module, exports) {
   }).call(this);
 });
 
+var idbKeyval = createCommonjsModule(function (module) {
+  (function () {
+    'use strict';
+
+    var db;
+
+    function getDB() {
+      if (!db) {
+        db = new Promise(function (resolve, reject) {
+          var openreq = indexedDB.open('keyval-store', 1);
+
+          openreq.onerror = function () {
+            reject(openreq.error);
+          };
+
+          openreq.onupgradeneeded = function () {
+            // First time setup: create an empty object store
+            openreq.result.createObjectStore('keyval');
+          };
+
+          openreq.onsuccess = function () {
+            resolve(openreq.result);
+          };
+        });
+      }
+      return db;
+    }
+
+    function withStore(type, callback) {
+      return getDB().then(function (db) {
+        return new Promise(function (resolve, reject) {
+          var transaction = db.transaction('keyval', type);
+          transaction.oncomplete = function () {
+            resolve();
+          };
+          transaction.onerror = function () {
+            reject(transaction.error);
+          };
+          callback(transaction.objectStore('keyval'));
+        });
+      });
+    }
+
+    var idbKeyval = {
+      get: function (key) {
+        var req;
+        return withStore('readonly', function (store) {
+          req = store.get(key);
+        }).then(function () {
+          return req.result;
+        });
+      },
+      set: function (key, value) {
+        return withStore('readwrite', function (store) {
+          store.put(value, key);
+        });
+      },
+      delete: function (key) {
+        return withStore('readwrite', function (store) {
+          store.delete(key);
+        });
+      },
+      clear: function () {
+        return withStore('readwrite', function (store) {
+          store.clear();
+        });
+      },
+      keys: function () {
+        var keys = [];
+        return withStore('readonly', function (store) {
+          // This would be store.getAllKeys(), but it isn't supported by Edge or Safari.
+          // And openKeyCursor isn't supported by Safari.
+          (store.openKeyCursor || store.openCursor).call(store).onsuccess = function () {
+            if (!this.result) return;
+            keys.push(this.result.key);
+            this.result.continue();
+          };
+        }).then(function () {
+          return keys;
+        });
+      }
+    };
+
+    if ('object' != 'undefined' && module.exports) {
+      module.exports = idbKeyval;
+    } else if (typeof undefined === 'function' && undefined.amd) {
+      undefined('idbKeyval', [], function () {
+        return idbKeyval;
+      });
+    } else {
+      self.idbKeyval = idbKeyval;
+    }
+  })();
+});
+
+var asyncToGenerator = function (fn) {
+  return function () {
+    var gen = fn.apply(this, arguments);
+    return new Promise(function (resolve, reject) {
+      function step(key, arg) {
+        try {
+          var info = gen[key](arg);
+          var value = info.value;
+        } catch (error) {
+          reject(error);
+          return;
+        }
+
+        if (info.done) {
+          resolve(value);
+        } else {
+          return Promise.resolve(value).then(function (value) {
+            step("next", value);
+          }, function (err) {
+            step("throw", err);
+          });
+        }
+      }
+
+      return step("next");
+    });
+  };
+};
+
 const hue = jsHue();
 
 let app = new Vue$3$1({
 	el: '#app',
 	data: {
-		lights: [
-			// {name: 'unterwegs', number: 5, position: {x: 1, y:2, z:5}, color:'red'}
-		]
+		lights: [],
+		configuredLights: [],
+		lastSync: new Date(),
+		syncTimeout: null,
+		manualBridgeSetup: false,
+		bridgeAddress: '',
+		bridgeConnected: false,
+		bridgeError: 'hello!'
 	},
 	watch: {},
 	filters: {
 		stringPos: ({ x, y, z }) => `${x} ${y} ${z}`
 	},
 
-	created: function () {
+	created: (() => {
+		var _ref = asyncToGenerator(function* () {
+			var _this = this;
 
-		this.bridge = hue.bridge('192.168.1.17');
-		this.hueUser = this.bridge.user('lampe-bash');
-		this.hueUser.getConfig().then(config => {
-			console.log(config);
-		}).catch(err => {
-			console.log(err);
+			hue.discover().then(function (bridges) {
+				if (bridges.length === 0) {
+					console.log('No bridges found. :(');
+					_this.bridgeError = 'No bridges found. Try entering the address manually.';
+					_this.manualBridgeSetup = true;
+				} else {
+					_this.bridgeAddress = bridges[0].internalipaddress;
+					return _this.connectBridge();
+				}
+			}).catch(function (e) {
+				_this.manualBridgeSetup = true;
+				console.log('Error finding bridges', e);
+			});
 		});
 
-		this.hueUser.getLights().then(lights_ => {
-			if (Object.keys(lights_).length === 0) {
-				console.error('No lights found!');
-			}
-			// Transform object coming from hue bridge to proper array
-			// and save index/light number for later reference
-			for (let index in lights_) {
-				let light = lights_[index];
-				light.number = parseInt(index);
-				light.color = 'blue';
-				light.position = { x: 0, y: 0, z: 0 };
-				this.lights.push(light);
-			}
-			console.log(JSON.stringify(this.lights));
-		});
-	},
+		return function created() {
+			return _ref.apply(this, arguments);
+		};
+	})(),
 
 	methods: {
+		connectBridge: function () {
+			this.bridge = hue.bridge(this.bridgeAddress);
+			this.hueUser = this.bridge.user('lampe-bash');
+			this.bridgeConnected = true;
+			return this.hueUser.getConfig().then(config => {
+				console.log(config);
 
-		setupLight: function (evt, light) {
+				return this.pullLights();
+			}).catch(err => {
+				console.log('Error getting config from bridge');
+				console.log(err);
+				this.bridgeError = 'Error connecting to brige. Are you sure the IP-Address of your bridge is correct?';
+			});
+		},
+
+		resetConfiguration: function () {
+			idbKeyval.delete('configuredLights');
+		},
+
+		pullLights: (() => {
+			var _ref2 = asyncToGenerator(function* () {
+				// Initially get all lights from indexedDB and Hue Bridge.
+
+				let storedPromise = idbKeyval.get('configuredLights');
+				let bridgePromise = this.hueUser.getLights();
+				let [storedLights = [], bridgeLights] = yield Promise.all([storedPromise, bridgePromise]);
+				console.log(storedLights, bridgeLights);
+				if (Object.keys(bridgeLights).length === 0) {
+					console.error('No lights found @ configured bridge!');
+				}
+
+				// Merge Bridge light info into position light info
+				for (let index in bridgeLights) {
+
+					let light = bridgeLights[index];
+					let storedLight = storedLights.find(function (light_) {
+						return light.uniqueid === light_.uniqueid;
+					});
+
+					if (storedLight) {
+						light = Object.assign(light, storedLight);
+						this.configuredLights.push(light);
+					} else {
+						light.position = {};
+					}
+					light.number = parseInt(index);
+					this.lights.push(light);
+				}
+			});
+
+			return function pullLights() {
+				return _ref2.apply(this, arguments);
+			};
+		})(),
+		syncLights: function () {
+			clearTimeout(this.syncTimeout);
+			this.syncTimeout = null;
+			this.lastSync = new Date();
+			for (let light of this.configuredLights) {
+				if (!light.changed) continue; // don't change light state for non-changed lights
+				this.hueUser.setLightState(light.number, { xy: light.state.xy });
+			}
+		},
+
+		queueSyncLights: function () {
+
+			// Check if a timeout to sync is already scheduled, if there is wait for it
+			// otherwise try to sync lights now or schedule a timeout for soonish execution
+			if (syncTimeout === null) {
+
+				let now = new Date();
+				let diff = now - this.lastSync;
+				if (diff >= 100) {
+					// Only set light state if 100ms have passed since last sync with bridge
+					this.syncLights();
+				} else {
+					// Last update was less than 100ms ago, create a  recursive timeout instead
+					this.syncTimeout = setTimeout(this.syncLights.bind(this), 100 - diff);
+				}
+			}
+		},
+
+		configureLight: function (evt, light) {
 			console.log('set up', light);
-			this.setupLightMode = true;
-			this.lightToSetup = light;
-			console.log(this.lightToSetup);
+			this.configureLightMode = true;
+			this.lightToConfigure = light;
+			console.log(this.lightToConfigure);
 		},
 
 		controllerClick: function (evt) {
 			console.log('controller click');
 
-			if (this.setupLightMode && this.lightToSetup) {
-				console.log('ok!');
-				console.log(evt.target.getAttribute('position'));
+			if (this.configureLightMode && this.lightToConfigure !== undefined) {
 				// Set the lights position to controllers position
-				this.lightToSetup.position = evt.target.getAttribute('position');
-				this.setupLightMode = false;
-				this.lightToSetup = undefined;
+				this.lightToConfigure.position = evt.target.getAttribute('position');
+
+				// If light has not been configured yet, add it to the configuredLights list
+				if (!this.configuredLights.some(light => light.number === this.lightToConfigure.number)) {
+					this.lightToConfigure.changed = false;
+					this.configuredLights.push(this.lightToConfigure);
+				}
+
+				console.log('configured lights');
+				idbKeyval.set('configuredLights', this.configuredLights);
+				this.configureLightMode = false;
+				this.lightToConfigure = undefined;
 			}
 		},
 
@@ -12264,27 +12478,57 @@ let app = new Vue$3$1({
 			let vec = new THREE.Vector2(axis[0], axis[1]);
 			let angle = vec.angle() * 180 / Math.PI;
 			// console.log(angle);
-			let color = chroma.hsv(angle, 0.9, 0.9).hex();
-			let selected = evt.detail.target.components.raycaster.intersectedEls;
-			if (selected.length !== 0) {
-				console.log(selected);
-				console.log(selected[0].getAttribute('number'));
-				let intersected = this.lights.filter(({ number }) => {
-					return number === parseInt(selected[0].getAttribute('number'));
-				})[0];
+			let [h, s, v] = chroma.hsv(angle, 0.9, 0.9).hsv();
 
-				intersected.color = color;
+			let hsb = { hue: h * (65535 / 360), sat: s * 255, bri: v * 255 };
+
+			let selected = evt.detail.target.components.raycaster.intersectedEls;
+
+			if (selected.length !== 0) {
+
+				let intersected = this.configuredLights.find(({ number }) => {
+					return number === parseInt(selected[0].getAttribute('number'));
+				});
+				// console.log(intersected);
+				console.log(hsb);
+				intersected.state.hue = hsb.hue;
+				// intersected.state.sat = hsb.sat;
+				// intersected.state.bri = hsb.bri;
+
+				this.queueSyncLights(); // IDEA: Perhaps move this to a watcher that watches this.configuredLights
 			}
 		},
 
-		hoverLight: function (evt, light) {
-			console.log('hover light');
-			light.color = light.color === 'fuchsia' ? 'blue' : 'fuchsia';
-			if (evt.type === 'mouseenter') {
-				this.hueUser.setLightState(light.number, { alert: 'select' });
-			}
-		}
+		hoverLight: (() => {
+			var _ref3 = asyncToGenerator(function* (evt, light) {
+				console.log('hover light');
+
+				// let state = await this.hueUser.getLight(light.number);
+				// console.log(evt.type);
+				if (evt.type === 'mouseenter') {
+
+					light.previousColor = {
+						hue: light.state.bri,
+						sat: light.state.sat,
+						bri: light.state.bri
+					};
+					// Create subtle hover effect by dimming up/down
+					light.state.bri = light.state.bri <= 245 ? light.state.bri + 10 : light.state.bri - 10;
+				} else if (evt.type === 'mouseleave') {
+					// Restore previous light if not changed.
+					if (!light.changed) {
+						light.state.bri = light.previousColor.bri;
+					}
+				}
+				this.queueSyncLights();
+			});
+
+			return function hoverLight(_x, _x2) {
+				return _ref3.apply(this, arguments);
+			};
+		})()
 	}
 });
 
 }());
+//# sourceMappingURL=index.bundle.js.map
