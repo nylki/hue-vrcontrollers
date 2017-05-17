@@ -29,32 +29,35 @@ let app = new Vue({
 	created: async function () {
 
 		// TODO: use saved bridge IP if it exists.
-		// if(idbKeyval.has('bridgeAddress')) {
-		//		idbKeyval.get('bridgeAddress').then((bridgeAddress) => {
-		//			this.bridgeAddress = bridgeAddress;
-		//		})
-		// } else {}
-		
-		hue.discover().then(bridges => {
-		    if(bridges.length === 0) {
-		        console.log('No bridges found. :(');
-						this.bridgeError = 'No bridges found. Try entering the address manually.';
-						this.manualBridgeSetup = true;
-		    }
-		    else {
-					this.bridgeAddress = bridges[0].internalipaddress;
-					return this.connectBridge();
-		    }
-		}).catch(e => {
-			this.manualBridgeSetup = true;
-			console.log('Error finding bridges', e)
-		});
-		
-		
+		if(idbKeyval.has('bridgeAddress')) {
+				idbKeyval.get('bridgeAddress').then((bridgeAddress) => {
+					this.bridgeAddress = bridgeAddress;
+					this.connectBridge();
+				})
+		} else {
+			return discoverBridge();
+		}
 	},
 	
 	
 	methods: {
+	discoverBridge: function () {
+		return hue.discover().then(bridges => {
+				if(bridges.length === 0) {
+						console.log('No bridges found. :(');
+						this.bridgeError = 'No bridges found. Try entering the address manually.';
+						this.manualBridgeSetup = true;
+				}
+				else {
+					this.bridgeAddress = bridges[0].internalipaddress;
+					return this.connectBridge();
+				}
+		}).catch(e => {
+			this.manualBridgeSetup = true;
+			console.log('Error finding bridges', e)
+		});
+	},
+	
 	connectBridge: function () {
 		this.bridge = hue.bridge(this.bridgeAddress);
 		this.hueUser = this.bridge.user('lampe-bash');
@@ -105,12 +108,16 @@ let app = new Vue({
 
 		},
 		syncLights: function () {
+			console.log('sync timeout');
 			clearTimeout(this.syncTimeout);
 			this.syncTimeout = null;
 			this.lastSync = new Date();
 			for (let light of this.configuredLights) {
 				if(!light.changed) continue; // don't change light state for non-changed lights
-				this.hueUser.setLightState(light.number, {xy: light.state.xy});
+				return this.hueUser.setLightState(light.number, {hue: light.state.hue}).catch((err) => {
+					console.log(err);
+				})
+				light.changed = false;
 			}
 			
 		},
@@ -119,16 +126,18 @@ let app = new Vue({
 			
 			// Check if a timeout to sync is already scheduled, if there is wait for it
 			// otherwise try to sync lights now or schedule a timeout for soonish execution
-			if(syncTimeout === null) {
-				
+			// console.log('quue sync lights');
+			if(!this.syncTimeout) {
+				// console.log('no timeout');
 				let now = new Date();
 				let diff = now - this.lastSync;
-				if(diff >= 100) {
+				if(diff >= 1000) {
+					console.log('ok sync now!');
 					// Only set light state if 100ms have passed since last sync with bridge
 					this.syncLights();
 				} else {
 					// Last update was less than 100ms ago, create a  recursive timeout instead
-					this.syncTimeout = setTimeout(this.syncLights.bind(this), 100 - diff);
+					this.syncTimeout = setTimeout(this.syncLights.bind(this), 1000 - diff);
 				}
 			}
 			
@@ -170,13 +179,16 @@ let app = new Vue({
 		},
 		axismove: function (evt, el) {
 			// console.log(evt.detail.axis);
+			// FIXME: for some reason there is always a 0,0 axis event triggered at the end
+			// maybe open issue at aframe?
+			if(evt.detail.axis[0] === 0 && evt.detail.axis[1] === 0) return;
 			let axis = evt.detail.axis;
 			let vec = new THREE.Vector2(axis[0], axis[1]);
 			let angle = vec.angle() * 180/Math.PI;
 			// console.log(angle);
 			let [h, s, v] = chroma.hsv(angle, 0.9, 0.9).hsv();
 			
-			let hsb = {hue: h * (65535 / 360), sat: s * 255, bri: v * 255};
+			let hsb = {hue: Math.round(h * (65535 / 360)), sat: Math.round(s * 255), bri: Math.round(v * 255)};
 			
 			let selected = evt.detail.target.components.raycaster.intersectedEls;
 
@@ -185,9 +197,11 @@ let app = new Vue({
 				let intersected = this.configuredLights.find(({number}) => {
 					return number === parseInt(selected[0].getAttribute('number'))
 				});
+				
 				// console.log(intersected);
-				console.log(hsb);
 				intersected.state.hue = hsb.hue;
+				// console.log('changed',intersected.number,'to',intersected.state.hue);
+				intersected.changed = true;
 				// intersected.state.sat = hsb.sat;
 				// intersected.state.bri = hsb.bri;
 

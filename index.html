@@ -58,30 +58,31 @@ a-scene {
 			</div>
 			
 			
-			<a-scene embedded debug>
-				<a-camera>
-				</a-camera>
-				
-				
-				
-				<a-sky color="#ECECEC"></a-sky>
-				<template v-for="light in configuredLights">
-					<a-text :value="light.name" :position="light.position | stringPos"></a-text>
-					<a-sphere class="lights" :number="light.number" :id="light.uuid" radius="0.5" :color="light.color" :position="light.position | stringPos" v-on:mouseenter="hoverLight($event, light)"
-					v-on:mouseleave="hoverLight($event, light)"
-					v-on:click="toggleLight($event, light)"></a-sphere>
-				</template>
-				
-				<a-entity id="rightHand" v-on:axismove="axismove($event)" v-on:buttonup="controllerClick($event)" hand-controls="right" controller-cursor>
-				</a-entity>
-				
-				<a-entity id="leftHand" v-on:axismove="axismove($event)" v-on:buttonup="controllerClick($event)" hand-controls="left" controller-cursor>
-				</a-entity>
-				
-				<a-plane color="rgb(119, 119, 119)" height="100" width="100" rotation="-90 0 0"></a-plane>
-				
-			</a-scene>
+			
 		</template>
+		<a-scene embedded debug>
+			<a-camera>
+			</a-camera>
+			
+			
+			
+			<a-sky color="#ECECEC"></a-sky>
+			<template v-for="light in configuredLights">
+				<a-text :value="light.name" :position="light.position | stringPos"></a-text>
+				<a-sphere class="lights" :number="light.number" :id="light.uuid" radius="0.5" :color="light.color" :position="light.position | stringPos" v-on:mouseenter="hoverLight($event, light)"
+				v-on:mouseleave="hoverLight($event, light)"
+				v-on:click="toggleLight($event, light)"></a-sphere>
+			</template>
+			
+			<a-entity id="rightHand" v-on:axismove="axismove($event)" v-on:buttonup="controllerClick($event)" hand-controls="right" controller-cursor>
+			</a-entity>
+			
+			<a-entity id="leftHand" v-on:axismove="axismove($event)" v-on:buttonup="controllerClick($event)" hand-controls="left" controller-cursor>
+			</a-entity>
+			
+			<a-plane color="rgb(119, 119, 119)" height="100" width="100" rotation="-90 0 0"></a-plane>
+			
+		</a-scene>
 		
 		
 	</div>

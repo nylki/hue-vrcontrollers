@@ -12337,6 +12337,13 @@ let app = new Vue$3$1({
 		var _ref = asyncToGenerator(function* () {
 			var _this = this;
 
+			// TODO: use saved bridge IP if it exists.
+			// if(idbKeyval.has('bridgeAddress')) {
+			//		idbKeyval.get('bridgeAddress').then((bridgeAddress) => {
+			//			this.bridgeAddress = bridgeAddress;
+			//		})
+			// } else {}
+
 			hue.discover().then(function (bridges) {
 				if (bridges.length === 0) {
 					console.log('No bridges found. :(');
@@ -12361,10 +12368,10 @@ let app = new Vue$3$1({
 		connectBridge: function () {
 			this.bridge = hue.bridge(this.bridgeAddress);
 			this.hueUser = this.bridge.user('lampe-bash');
-			this.bridgeConnected = true;
 			return this.hueUser.getConfig().then(config => {
 				console.log(config);
-
+				this.bridgeConnected = true;
+				idbKeyval.set('bridgeAddress', this.bridgeAddress);
 				return this.pullLights();
 			}).catch(err => {
 				console.log('Error getting config from bridge');
@@ -12413,12 +12420,22 @@ let app = new Vue$3$1({
 			};
 		})(),
 		syncLights: function () {
+			console.log('sync timeout');
 			clearTimeout(this.syncTimeout);
 			this.syncTimeout = null;
 			this.lastSync = new Date();
 			for (let light of this.configuredLights) {
 				if (!light.changed) continue; // don't change light state for non-changed lights
-				this.hueUser.setLightState(light.number, { xy: light.state.xy });
+				console.log('sync', light.number, 'to', light.state.hue);
+				this.hueUser.getLight(light.number).then(({ state }) => {
+					console.log(state);
+					return this.hueUser.setLightState(light.number, { on: true, xy: [Math.random(), Math.random()] });
+				}).then(res => {
+					console.log('res', res);
+				}).catch(err => {
+					console.log(err);
+				});
+				light.changed = false;
 			}
 		},
 
@@ -12426,16 +12443,18 @@ let app = new Vue$3$1({
 
 			// Check if a timeout to sync is already scheduled, if there is wait for it
 			// otherwise try to sync lights now or schedule a timeout for soonish execution
-			if (syncTimeout === null) {
-
+			// console.log('quue sync lights');
+			if (!this.syncTimeout) {
+				// console.log('no timeout');
 				let now = new Date();
 				let diff = now - this.lastSync;
-				if (diff >= 100) {
+				if (diff >= 1000) {
+					console.log('ok sync now!');
 					// Only set light state if 100ms have passed since last sync with bridge
 					this.syncLights();
 				} else {
 					// Last update was less than 100ms ago, create a  recursive timeout instead
-					this.syncTimeout = setTimeout(this.syncLights.bind(this), 100 - diff);
+					this.syncTimeout = setTimeout(this.syncLights.bind(this), 1000 - diff);
 				}
 			}
 		},
@@ -12474,6 +12493,9 @@ let app = new Vue$3$1({
 		},
 		axismove: function (evt, el) {
 			// console.log(evt.detail.axis);
+			// FIXME: for some reason there is always a 0,0 axis event triggered at the end
+			// maybe open issue at aframe?
+			if (evt.detail.axis[0] === 0 && evt.detail.axis[1] === 0) return;
 			let axis = evt.detail.axis;
 			let vec = new THREE.Vector2(axis[0], axis[1]);
 			let angle = vec.angle() * 180 / Math.PI;
@@ -12489,9 +12511,11 @@ let app = new Vue$3$1({
 				let intersected = this.configuredLights.find(({ number }) => {
 					return number === parseInt(selected[0].getAttribute('number'));
 				});
+
 				// console.log(intersected);
-				console.log(hsb);
 				intersected.state.hue = hsb.hue;
+				// console.log('changed',intersected.number,'to',intersected.state.hue);
+				intersected.changed = true;
 				// intersected.state.sat = hsb.sat;
 				// intersected.state.bri = hsb.bri;
 
