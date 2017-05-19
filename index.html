@@ -1,93 +1,15 @@
 <!DOCTYPE html>
-<html>
-<head>
-	<meta charset="utf-8">
-	<script src="/node_modules/aframe/dist/aframe-master.js"></script>
-	<script src="/node_modules/aframe-controller-cursor-component/dist/aframe-controller-cursor-component.js" charset="utf-8"></script>
-	
-	
-</head>
-<title></title>
-<style media="screen">
-a-scene {
-	width: 500px;
-	height: 500px;
-}
-.hidden {
-	display: none;
-}
+<html lang="en">
 
-#lightlist {
-	display: flex;
-	flex-direction: column;
-}
-</style>
-
-
-
-</head>
-
-<body>
-	
-	<div id="app">
-		<span>{{bridgeError}}</span><br>
-		<span>Hue-Bridge Address: {{bridgeAddress}}</span>
-		<span>All Lights</span>
-		
-		<div class="" v-if="manualBridgeSetup">
-			<span>Enter your Bridge IP manually:</span>
-			<input type="text" name="bridgeAddress" v-model="bridgeAddress">
-			<button type="button" name="connectBridgeBtn" v-on:click="connectBridge()">connect</button>
-		</div>
-		<div class="" v-else>
-			<span>Connected with bridge at {{bridgeAddress}}</span>
-			<button type="button" name="button">reset</button>
-		</div>
-		
-		<template v-if="bridgeConnected">
-			<div class="introduction">
-				Configure light positions below. Positions are saved locally in your browser for future sessions.
-			</div>
-			<button type="button" name="resetAll" v-on:click="resetConfiguration($event)"></button>
-			<div class="lightList">
-				<template v-for="light in lights">
-					<span>{{light.number}}</span>
-					<span :style="{backgroundColor:light.color}">{{light.name}}</span><span>{{light.position}}</span><span>{{light.color}}</span><button type="button" v-on:click="configureLight($event, light)">position with controller</button>
-					<br><br>
-				</template>
-			</div>
-			
-			
-			
-		</template>
-		<a-scene embedded debug>
-			<a-camera>
-			</a-camera>
-			
-			
-			
-			<a-sky color="#ECECEC"></a-sky>
-			<template v-for="light in configuredLights">
-				<a-text :value="light.name" :position="light.position | stringPos"></a-text>
-				<a-sphere class="lights" :number="light.number" :id="light.uuid" radius="0.5" :color="light.color" :position="light.position | stringPos" v-on:mouseenter="hoverLight($event, light)"
-				v-on:mouseleave="hoverLight($event, light)"
-				v-on:click="toggleLight($event, light)"></a-sphere>
-			</template>
-			
-			<a-entity id="rightHand" v-on:axismove="axismove($event)" v-on:buttonup="controllerClick($event)" hand-controls="right" controller-cursor>
-			</a-entity>
-			
-			<a-entity id="leftHand" v-on:axismove="axismove($event)" v-on:buttonup="controllerClick($event)" hand-controls="left" controller-cursor>
-			</a-entity>
-			
-			<a-plane color="rgb(119, 119, 119)" height="100" width="100" rotation="-90 0 0"></a-plane>
-			
-		</a-scene>
-		
-		
-	</div>
-	
-	<script src="index.bundle.js" charset="utf-8"></script>
-	<script src="node_modules/aframe/dist/aframe-master.js" charset="utf-8"></script>
-</body>
+  <head>
+    <meta charset="utf-8">
+    <title>vuetest</title>
+  </head>
+  
+  <body>
+    <div id="app"></div>
+    <script src="/node_modules/aframe/dist/aframe-master.js"></script>
+    <script src="/node_modules/aframe-controller-cursor-component/dist/aframe-controller-cursor-component.js" charset="utf-8"></script>
+    <script src="/dist/build.js"></script>
+  </body>
 </html>

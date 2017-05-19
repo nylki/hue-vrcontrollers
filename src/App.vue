@@ -1,23 +1,86 @@
+
+<template>
+
+	<div id="app">
+		<span class="error" v-if="!bridgeConnected">{{bridgeError}}</span><br>
+		
+		<div class="" v-if="manualBridgeSetup">
+			<span>Enter your Bridge IP manually:</span>
+			<input type="text" name="bridgeAddress" v-model="bridgeAddress">
+			<button type="button" name="connectBridgeBtn" v-on:click="connectBridge()">connect</button>
+		</div>
+		<div class="" v-else>
+			<span>Connected with bridge at {{bridgeAddress}}</span>
+			<button type="button" name="button">reset</button>
+		</div>
+		
+		<template v-if="bridgeConnected">
+			<div class="introduction">
+				Configure light positions below. Positions are saved locally in your browser for future sessions.
+			</div>
+			<button type="button" name="resetAll" v-on:click="resetConfiguration($event)"></button>
+			<div class="lightList">
+				<template v-for="light in lights">
+					<span>{{light.number}}</span>
+					<span :style="{backgroundColor:light.color}">{{light.name}}</span><span>{{light.position}}</span><span>{{light.color}}</span><button type="button" v-on:click="configureLight($event, light)">position with controller</button>
+					<br><br>
+				</template>
+			</div>
+			
+			
+			
+		</template>
+		<a-scene embedded debug>
+			<a-camera>
+			</a-camera>
+			
+			
+			
+			<a-sky color="#ECECEC"></a-sky>
+			<template v-for="light in configuredLights">
+				<a-text :value="light.name" :position="light.position | stringPos"></a-text>
+				<a-sphere class="lights" :number="light.number" :id="light.uuid" radius="0.5" :color="light.color" :position="light.position | stringPos" v-on:mouseenter="hoverLight($event, light)"
+				v-on:mouseleave="hoverLight($event, light)"
+				v-on:click="toggleLight($event, light)"></a-sphere>
+			</template>
+			
+			<a-entity id="rightHand" v-on:axismove="axismove($event)" v-on:buttonup="controllerClick($event)" hand-controls="right" controller-cursor>
+			</a-entity>
+			
+			<a-entity id="leftHand" v-on:axismove="axismove($event)" v-on:buttonup="controllerClick($event)" hand-controls="left" controller-cursor>
+			</a-entity>
+			
+			<a-plane color="rgb(119, 119, 119)" height="100" width="100" rotation="-90 0 0"></a-plane>
+			
+		</a-scene>
+		
+		
+	</div>
+</template>
+
+
+<script>
+
 import jsHue from './jshue';
-import Vue from 'vue';
 import chroma from 'chroma-js';
 import idbKeyval from 'idb-keyval';
 
-
 const hue = jsHue();
 
-let app = new Vue({
-  el: '#app',
-  data: {
-		lights: [],
-		configuredLights: [],
-		lastSync: new Date(),
-		syncTimeout: null,
-		manualBridgeSetup: false,
-		bridgeAddress: '',
-		bridgeConnected: false,
-		bridgeError: 'hello!'
-  },
+export default {
+	name: 'app',
+	data() {
+		return {
+			lights: [],
+			configuredLights: [],
+			lastSync: new Date(),
+			syncTimeout: null,
+			manualBridgeSetup: false,
+			bridgeAddress: '',
+			bridgeConnected: false,
+			bridgeError: ''
+		}
+	},
 	watch: {
 		
 	},
@@ -29,13 +92,14 @@ let app = new Vue({
 	created: async function () {
 
 		// TODO: use saved bridge IP if it exists.
-		if(idbKeyval.has('bridgeAddress')) {
-				idbKeyval.get('bridgeAddress').then((bridgeAddress) => {
-					this.bridgeAddress = bridgeAddress;
-					this.connectBridge();
-				})
+		let bridgeAddress = await idbKeyval.get('bridgeAddress');
+		console.log(bridgeAddress);
+		if(bridgeAddress !== undefined) {
+			this.bridgeAddress = bridgeAddress;
+			this.connectBridge();
+
 		} else {
-			return discoverBridge();
+			return this.discoverBridge();
 		}
 	},
 	
@@ -235,7 +299,7 @@ let app = new Vue({
 
 		}
   }
-})
+}
 
 
 // Starts the setup in which the hueUser can place virtual lights
@@ -291,3 +355,23 @@ function addIndex(light, index) {
 	light.index = index;
 	return light;
 }
+</script>
+
+<style>
+a-scene {
+	width: 500px;
+	height: 500px;
+}
+.hidden {
+	display: none;
+}
+
+#lightlist {
+	display: flex;
+	flex-direction: column;
+}
+
+.error {
+	background-color: rgba(249, 60, 65, 0.5);
+}
+</style>
