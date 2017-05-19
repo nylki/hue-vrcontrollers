@@ -2,19 +2,28 @@
 <template>
 
 	<div id="app">
-		<span class="error" v-if="!bridgeConnected">{{bridgeError}}</span><br>
-		
-		<div class="" v-if="manualBridgeSetup">
-			<span>Enter your Bridge IP manually:</span>
-			<input type="text" name="bridgeAddress" v-model="bridgeAddress">
-			<button type="button" name="connectBridgeBtn" v-on:click="connectBridge()">connect</button>
+		<div id="connectStatus">
+			<span>{{connectMessage}}</span><br>
+			<button type="button" name="button" v-on:click="resetConfiguration($event)">reset</button>
 		</div>
-		<div class="" v-else>
-			<span>Connected with bridge at {{bridgeAddress}}</span>
-			<button type="button" name="button">reset</button>
+
+		
+		<div id="connectBox" v-if="connectStatus !== 'connected'">
+			
+			<span>Enter your Bridge IP or hostname</span>
+			
+			<div id="bridgeForm">
+				<input type="text" name="bridgeAddress" v-model="bridgeAddress">
+				<button type="button" name="connectBridgeBtn" v-on:click="connectBridge()">connect</button>
+			</div>
+
+			<span id="discoverBridgeLink" v-on:click="discoverBridge()">
+				Attempt automatic discovering
+			</span>
+			
 		</div>
 		
-		<template v-if="bridgeConnected">
+		<template v-if="connectStatus === 'connected'">
 			<div class="introduction">
 				Configure light positions below. Positions are saved locally in your browser for future sessions.
 			</div>
@@ -75,12 +84,15 @@ export default {
 			configuredLights: [],
 			lastSync: new Date(),
 			syncTimeout: null,
-			manualBridgeSetup: false,
 			bridgeAddress: '',
-			bridgeConnected: false,
-			bridgeError: ''
+			connectStatus: 'disconnected',
+			connectMessage: ''
 		}
 	},
+	computed: {
+
+	},
+	
 	watch: {
 		
 	},
@@ -106,41 +118,77 @@ export default {
 	
 	methods: {
 	discoverBridge: function () {
+		this.connectStatus = 'connecting';
 		return hue.discover().then(bridges => {
+			console.log(bridges);
 				if(bridges.length === 0) {
 						console.log('No bridges found. :(');
-						this.bridgeError = 'No bridges found. Try entering the address manually.';
-						this.manualBridgeSetup = true;
+						this.connectStatus = 'disconnected';
+						this.connectMessage = 'No bridges found. Try entering the address manually.';
 				}
 				else {
+					console.log('discovered a bridge!', bridges[0].internalipaddress);
 					this.bridgeAddress = bridges[0].internalipaddress;
-					return this.connectBridge();
 				}
 		}).catch(e => {
-			this.manualBridgeSetup = true;
 			console.log('Error finding bridges', e)
 		});
 	},
 	
-	connectBridge: function () {
+	connectBridge: async function () {
+		console.log('connectBridge');
+		this.connectStatus = 'connecting';
+		this.connectMessage = `Connecting to bridge @ ${this.bridgeAddress}, connecting…`;
 		this.bridge = hue.bridge(this.bridgeAddress);
 		this.hueUser = this.bridge.user('lampe-bash');
-			return this.hueUser.getConfig()
-			.then(config => {
-				console.log(config);
-				this.bridgeConnected = true;
-				idbKeyval.set('bridgeAddress', this.bridgeAddress);
-				return this.pullLights();
-			})
-			.catch((err) => {
+		let self = this;
+		
+		return new Promise(async (resolve, reject) => {
+			
+			let timeout = setTimeout(handleError, 5000);
+			
+			function handleError() {
+				self.connectStatus = 'error';
 				console.log('Error getting config from bridge');
-				console.log(err);
-				this.bridgeError = 'Error connecting to brige. Are you sure the IP-Address of your bridge is correct?';
-			})
+				self.connectMessage = 'Error connecting to brige. Are you sure the IP-Address of your bridge is correct?';
+				reject();
+			}
+
+			try {
+				var config = await this.hueUser.getConfig();
+				// Got config!
+				console.log(config);
+				this.connectStatus = 'connected';
+				this.connectMessage = `Connected to bridge (${this.bridgeAddress})`;
+				idbKeyval.set('bridgeAddress', this.bridgeAddress);
+				this.pullLights();
+				resolve();
+			} catch (e) {
+				console.log('catched error');
+				console.log(e);
+				handleError();
+			} finally {
+				clearTimeout(timeout);
+			}
+			
+
+
+
+			
+		});
+		
+
+
+
 		},
 		
 		resetConfiguration: function () {
+			console.log('resetConfig');
+			idbKeyval.delete('bridgeAddress');
 			idbKeyval.delete('configuredLights');
+			this.bridgeAddress = '';
+			this.bridgeAddress = undefined;
+			this.connectStatus = 'disconnected';
 		},
 		
 		pullLights: async function () {
@@ -374,4 +422,24 @@ a-scene {
 .error {
 	background-color: rgba(249, 60, 65, 0.5);
 }
+
+#connectBox {
+	width: 20em;
+	display: flex;
+	flex-direction: column;
+}
+
+#discoverBridgeLink {
+	color: blue;
+	cursor: pointer;
+}
+
+#bridgeForm {
+	width: 10px;
+	display: flex;
+	flex-direction: row;
+}
+
+
+
 </style>
