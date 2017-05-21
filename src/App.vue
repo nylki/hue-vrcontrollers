@@ -1,4 +1,5 @@
 
+
 <template>
 
 	<div id="app">
@@ -75,6 +76,7 @@ import chroma from 'chroma-js';
 import idbKeyval from 'idb-keyval';
 
 const hue = jsHue();
+const SYNC_DELAY = 110; // Time between a sync call to the bridge for color changes
 
 export default {
 	name: 'app',
@@ -220,13 +222,13 @@ export default {
 
 		},
 		syncLights: function () {
-			console.log('sync timeout');
 			clearTimeout(this.syncTimeout);
 			this.syncTimeout = null;
 			this.lastSync = new Date();
 			for (let light of this.configuredLights) {
 				if(!light.changed) continue; // don't change light state for non-changed lights
-				return this.hueUser.setLightState(light.number, {hue: light.state.hue}).catch((err) => {
+				// console.log('change', light.number, light.state.hue);
+				return this.hueUser.setLightState(light.number, {sat: 255, bri: 180, hue: light.state.hue}).catch((err) => {
 					console.log(err);
 				})
 				light.changed = false;
@@ -243,13 +245,12 @@ export default {
 				// console.log('no timeout');
 				let now = new Date();
 				let diff = now - this.lastSync;
-				if(diff >= 1000) {
-					console.log('ok sync now!');
+				if(diff >= SYNC_DELAY) {
 					// Only set light state if 100ms have passed since last sync with bridge
 					this.syncLights();
 				} else {
 					// Last update was less than 100ms ago, create a  recursive timeout instead
-					this.syncTimeout = setTimeout(this.syncLights.bind(this), 1000 - diff);
+					this.syncTimeout = setTimeout(this.syncLights.bind(this), SYNC_DELAY - diff);
 				}
 			}
 			
