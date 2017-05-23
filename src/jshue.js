@@ -611,6 +611,7 @@ if(typeof fetch !== 'undefined' && typeof JSON !== 'undefined') {
      * @return {Object} instance
      */
     var jsHue = jsHueAPI.bind(null, fetch, JSON);
+    if (typeof module !== 'undefined' && typeof module.exports !== 'undefined') {
+        module.exports = jsHue;
+    }
 }
-
-export default jsHue;

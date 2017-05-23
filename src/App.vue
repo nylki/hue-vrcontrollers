@@ -1,13 +1,13 @@
 
 
 <template>
-
+	
 	<div id="app">
 		<div id="connectStatus">
 			<span>{{connectMessage}}</span><br>
 			<button type="button" name="button" v-on:click="resetConfiguration($event)">reset</button>
 		</div>
-
+		
 		
 		<div id="connectBox" v-if="connectStatus !== 'connected'">
 			
@@ -17,7 +17,7 @@
 				<input type="text" name="bridgeAddress" v-model="bridgeAddress">
 				<button type="button" name="connectBridgeBtn" v-on:click="connectBridge()">connect</button>
 			</div>
-
+			
 			<span id="discoverBridgeLink" v-on:click="discoverBridge()">
 				Attempt automatic discovering
 			</span>
@@ -46,18 +46,18 @@
 			
 			
 			
-			<a-sky color="#ECECEC"></a-sky>
+			<a-sky color="#dad6d6"></a-sky>
 			<template v-for="light in configuredLights">
 				<a-text :value="light.name" :position="light.position | stringPos"></a-text>
-				<a-sphere class="lights" :number="light.number" :id="light.uuid" radius="0.5" :color="light.color" :position="light.position | stringPos" v-on:mouseenter="hoverLight($event, light)"
+				<a-sphere class="lights" :number="light.number" :id="light.uuid" :radius="light.radius" :color="light.color" :position="light.position | stringPos" v-on:mouseenter="hoverLight($event, light)"
 				v-on:mouseleave="hoverLight($event, light)"
 				v-on:click="toggleLight($event, light)"></a-sphere>
 			</template>
 			
-			<a-entity id="rightHand" v-on:axismove="axismove($event)" v-on:buttonup="controllerClick($event)" hand-controls="right" controller-cursor>
+			<a-entity id="rightHand" v-on:axismove="axismove($event)" v-on:buttondown="buttonDown($event)" v-on:buttonup="buttonUp($event)" hand-controls="right" controller-cursor>
 			</a-entity>
 			
-			<a-entity id="leftHand" v-on:axismove="axismove($event)" v-on:buttonup="controllerClick($event)" hand-controls="left" controller-cursor>
+			<a-entity id="leftHand" v-on:axismove="axismove($event)" v-on:buttondown="buttonDown($event)" v-on:buttonup="buttonUp($event)" hand-controls="left" controller-cursor>
 			</a-entity>
 			
 			<a-plane color="rgb(119, 119, 119)" height="100" width="100" rotation="-90 0 0"></a-plane>
@@ -71,12 +71,12 @@
 
 <script>
 
-import jsHue from './jshue';
+import jshue from './jshue.js';
 import chroma from 'chroma-js';
 import idbKeyval from 'idb-keyval';
 
-const hue = jsHue();
-const SYNC_DELAY = 110; // Time between a sync call to the bridge for color changes
+const hue = jshue();
+const SYNC_DELAY = 90; // Time between a sync call to the bridge for color changes
 
 export default {
 	name: 'app',
@@ -84,15 +84,18 @@ export default {
 		return {
 			lights: [],
 			configuredLights: [],
+			outlinePoints: [],
+			hoveredLight: undefined,
 			lastSync: new Date(),
 			syncTimeout: null,
 			bridgeAddress: '',
 			connectStatus: 'disconnected',
-			connectMessage: ''
-		}
+			connectMessage: '',
+			collectPointsInterval: null
+		};
 	},
 	computed: {
-
+		
 	},
 	
 	watch: {
@@ -102,16 +105,16 @@ export default {
 		stringPos: ({x, y, z}) => `${x} ${y} ${z}`
 	},
 	
-
+	
 	created: async function () {
-
+		
 		// TODO: use saved bridge IP if it exists.
 		let bridgeAddress = await idbKeyval.get('bridgeAddress');
 		console.log(bridgeAddress);
 		if(bridgeAddress !== undefined) {
 			this.bridgeAddress = bridgeAddress;
 			this.connectBridge();
-
+			
 		} else {
 			return this.discoverBridge();
 		}
@@ -119,69 +122,62 @@ export default {
 	
 	
 	methods: {
-	discoverBridge: function () {
-		this.connectStatus = 'connecting';
-		return hue.discover().then(bridges => {
-			console.log(bridges);
+		discoverBridge: function () {
+			this.connectStatus = 'connecting';
+			return hue.discover().then(bridges => {
+				console.log(bridges);
 				if(bridges.length === 0) {
-						console.log('No bridges found. :(');
-						this.connectStatus = 'disconnected';
-						this.connectMessage = 'No bridges found. Try entering the address manually.';
+					console.log('No bridges found. :(');
+					this.connectStatus = 'disconnected';
+					this.connectMessage = 'No bridges found. Try entering the address manually.';
 				}
 				else {
 					console.log('discovered a bridge!', bridges[0].internalipaddress);
 					this.bridgeAddress = bridges[0].internalipaddress;
 				}
-		}).catch(e => {
-			console.log('Error finding bridges', e)
-		});
-	},
-	
-	connectBridge: async function () {
-		console.log('connectBridge');
-		this.connectStatus = 'connecting';
-		this.connectMessage = `Connecting to bridge @ ${this.bridgeAddress}, connecting…`;
-		this.bridge = hue.bridge(this.bridgeAddress);
-		this.hueUser = this.bridge.user('lampe-bash');
-		let self = this;
+			}).catch(e => {
+				console.log('Error finding bridges', e);
+			});
+		},
 		
-		return new Promise(async (resolve, reject) => {
+		connectBridge: async function () {
+			console.log('connectBridge');
+			this.connectStatus = 'connecting';
+			this.connectMessage = `Connecting to bridge @ ${this.bridgeAddress}, connecting…`;
+			this.bridge = hue.bridge(this.bridgeAddress);
+			this.hueUser = this.bridge.user('lampe-bash');
+			let self = this;
 			
-			let timeout = setTimeout(handleError, 5000);
+			return new Promise(async (resolve, reject) => {
+				
+				let timeout = setTimeout(handleError, 5000);
+				
+				function handleError() {
+					self.connectStatus = 'error';
+					console.log('Error getting config from bridge');
+					self.connectMessage = 'Error connecting to brige. Are you sure the IP-Address of your bridge is correct?';
+					reject();
+				}
+				
+				try {
+					var config = await this.hueUser.getConfig();
+					// Got config!
+					console.log(config);
+					this.connectStatus = 'connected';
+					this.connectMessage = `Connected to bridge (${this.bridgeAddress})`;
+					idbKeyval.set('bridgeAddress', this.bridgeAddress);
+					this.pullLights();
+					resolve();
+				} catch (e) {
+					console.log('catched error');
+					console.log(e);
+					handleError();
+				} finally {
+					clearTimeout(timeout);
+				}
+				
+			});
 			
-			function handleError() {
-				self.connectStatus = 'error';
-				console.log('Error getting config from bridge');
-				self.connectMessage = 'Error connecting to brige. Are you sure the IP-Address of your bridge is correct?';
-				reject();
-			}
-
-			try {
-				var config = await this.hueUser.getConfig();
-				// Got config!
-				console.log(config);
-				this.connectStatus = 'connected';
-				this.connectMessage = `Connected to bridge (${this.bridgeAddress})`;
-				idbKeyval.set('bridgeAddress', this.bridgeAddress);
-				this.pullLights();
-				resolve();
-			} catch (e) {
-				console.log('catched error');
-				console.log(e);
-				handleError();
-			} finally {
-				clearTimeout(timeout);
-			}
-			
-
-
-
-			
-		});
-		
-
-
-
 		},
 		
 		resetConfiguration: function () {
@@ -219,19 +215,20 @@ export default {
 				light.number = parseInt(index);
 				this.lights.push(light);
 			}
-
+			
 		},
 		syncLights: function () {
 			clearTimeout(this.syncTimeout);
 			this.syncTimeout = null;
 			this.lastSync = new Date();
 			for (let light of this.configuredLights) {
-				if(!light.changed) continue; // don't change light state for non-changed lights
-				// console.log('change', light.number, light.state.hue);
-				return this.hueUser.setLightState(light.number, {sat: 255, bri: 180, hue: light.state.hue}).catch((err) => {
-					console.log(err);
-				})
-				light.changed = false;
+				if(light.changed !== undefined && light.changed === true) {
+					this.hueUser.setLightState(light.number, {sat: 255, bri: 180, hue: light.state.hue}).catch((err) => {
+						console.log(err);
+					});
+					light.changed = false;
+				}
+
 			}
 			
 		},
@@ -258,19 +255,46 @@ export default {
 		},
 		
 		
-    configureLight: function (evt, light) {
+		configureLight: function (evt, light) {
 			console.log('set up', light);
 			this.configureLightMode = true;
 			this.lightToConfigure = light;
 			console.log(this.lightToConfigure);
 		},
-
-		controllerClick: function (evt) {
+		
+		buttonDown: function (evt) {
 			console.log('controller click');
-
+			
 			if(this.configureLightMode && this.lightToConfigure !== undefined) {
 				// Set the lights position to controllers position
-				this.lightToConfigure.position = evt.target.getAttribute('position');
+				this.outlinePoints = new THREE.Geometry();
+				this.collectPointsInterval = setInterval(() => {
+					this.addPoint(evt.target);
+				}, 50);
+			}
+		},
+		buttonUp: function (evt) {
+			
+			if((this.configureLightMode && this.lightToConfigure !== undefined && this.collectPointsInterval)) {
+				
+				clearInterval(this.collectPointsInterval);
+				console.log('collected points', this.outlinePoints);
+				// calculate center of outline
+				// let center = new THREE.Vector3(0, 0, 0);
+				// for (let point of this.outlinePoints) {
+				// 	center.add(point);
+				// }
+				// center.divideScalar(this.outlinePoints.length);
+				// console.log(center);
+				
+				this.outlinePoints.computeBoundingSphere();
+				console.log('center:', this.outlinePoints.boundingSphere.center);
+				console.log('radius', this.outlinePoints.boundingSphere.radius);
+				this.lightToConfigure.position = this.outlinePoints.boundingSphere.center;
+				// test: multiply with 0.90 to compensate for space between lamp and controller when drawing circle
+				this.lightToConfigure.radius = this.outlinePoints.boundingSphere.radius * 1.0;
+				this.hueUser.setLightState(this.lightToConfigure.number, {alert: 'select'});
+				
 				
 				// If light has not been configured yet, add it to the configuredLights list
 				if(!this.configuredLights.some(light => light.number === this.lightToConfigure.number)) {
@@ -284,11 +308,31 @@ export default {
 				this.lightToConfigure = undefined;
 			}
 		},
-
+		
+		addPoint: function (controller) {
+			let {x, y, z} = controller.getAttribute('position');
+			let controllerPos = new THREE.Vector3(x, y, z);
+			let numPoints = this.outlinePoints.vertices.length;
+			if(numPoints !== 0) {
+				let dist = controllerPos.distanceTo(this.outlinePoints.vertices[numPoints-1]);
+				console.log('distance', dist);
+				// dont add point if too close or too far away to previous point
+				// to prevent overly large array, respectively flaky position info from the controller
+				if(dist < 0.01 || dist > 1.0) return;
+			}
+			this.outlinePoints.vertices.push(controllerPos);
+			// this.outlinePoints.push(controllerPos);
+			console.log(this.outlinePoints.vertices);
+		},
+		
+		compressPoints: function () {
+			
+		},
+		
 		toggleLight: function (evt, light) {
 			return this.hueUser.getLight(light.number).then(({state}) => {
 				return this.hueUser.setLightState(light.number, {on: !state.on});
-			})
+			});
 		},
 		axismove: function (evt, el) {
 			// console.log(evt.detail.axis);
@@ -302,63 +346,57 @@ export default {
 			let [h, s, v] = chroma.hsv(angle, 0.9, 0.9).hsv();
 			
 			let hsb = {hue: Math.round(h * (65535 / 360)), sat: Math.round(s * 255), bri: Math.round(v * 255)};
-			
-			let selected = evt.detail.target.components.raycaster.intersectedEls;
-
-			if(selected.length !== 0) {
-
-				let intersected = this.configuredLights.find(({number}) => {
-					return number === parseInt(selected[0].getAttribute('number'))
-				});
-				
+						
+			if(this.hoveredLight) {
 				// console.log(intersected);
-				intersected.state.hue = hsb.hue;
+				this.hoveredLight.state.hue = hsb.hue;
 				// console.log('changed',intersected.number,'to',intersected.state.hue);
-				intersected.changed = true;
+				this.hoveredLight.changed = true;
 				// intersected.state.sat = hsb.sat;
 				// intersected.state.bri = hsb.bri;
-
+				
 				this.queueSyncLights(); // IDEA: Perhaps move this to a watcher that watches this.configuredLights
 			}
-
+			
 		},
-
+		
 		hoverLight: async function (evt, light) {
-			console.log('hover light');
 			
 			// let state = await this.hueUser.getLight(light.number);
-				// console.log(evt.type);
-				if(evt.type === 'mouseenter') {
-					
-					light.previousColor = {
-						hue: light.state.bri,
-						sat: light.state.sat,
-						bri: light.state.bri
-					}
-					// Create subtle hover effect by dimming up/down
-					light.state.bri = light.state.bri <= 245 ? light.state.bri + 10 : light.state.bri - 10;
-					
-				} else if (evt.type === 'mouseleave') {
-					// Restore previous light if not changed.
-					if(!light.changed) {
-						light.state.bri = light.previousColor.bri;
-					}
+			// console.log(evt.type);
+			if(evt.type === 'mouseenter') {
+				
+				this.hoveredLight = light;
+				light.previousColor = {
+					hue: light.state.bri,
+					sat: light.state.sat,
+					bri: light.state.bri
+				};
+				// Create subtle hover effect by dimming up/down
+				light.state.bri = light.state.bri <= 245 ? light.state.bri + 10 : light.state.bri - 10;
+				
+			} else if (evt.type === 'mouseleave') {
+				this.hoveredLight = undefined;
+				// Restore previous light if not changed.
+				if(!light.changed) {
+					light.state.bri = light.previousColor.bri;
 				}
-				this.queueSyncLights();
-
+			}
+			// this.queueSyncLights();
+			
 		}
-  }
-}
+	}
+};
 
 
 // Starts the setup in which the hueUser can place virtual lights
 // in his room with the VR controllers.
 function startLightSetup() {
-
+	
 }
 
 function pointDown(e) {
-  console.log(e);
+	console.log(e);
 }
 
 function hueGammaCorrection(value) {
@@ -392,7 +430,7 @@ function hueXYtoGl([x, y]) {
 	let r =  x_ * 1.656492 - y_ * 0.354851 - z_ * 0.255038;
 	let g = -x_ * 0.707196 + y_ * 1.655397 + z_ * 0.036152;
 	let b =  x_ * 0.051713 - y_ * 0.121364 + z_ * 1.011530;
-
+	
 	return [r, g, b].map(hueReverseGammaCorrection);
 }
 
