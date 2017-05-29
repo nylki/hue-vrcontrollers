@@ -1,5 +1,4 @@
 
-
 <template>
 	
 	<div id="app">
@@ -70,7 +69,9 @@
 
 
 <script>
-
+import AFRAME from 'aframe';
+import controllerCursor from 'aframe-controller-cursor-component';
+AFRAME.registerComponent('aframe-controller-cursor-component', controllerCursor);
 import jshue from './jshue.js';
 import chroma from 'chroma-js';
 import idbKeyval from 'idb-keyval';
@@ -223,7 +224,8 @@ export default {
 			this.lastSync = new Date();
 			for (let light of this.configuredLights) {
 				if(light.changed !== undefined && light.changed === true) {
-					this.hueUser.setLightState(light.number, {sat: 255, bri: 180, hue: light.state.hue}).catch((err) => {
+					console.log();
+					this.hueUser.setLightState(light.number, {sat: 255, bri: light.state.bri, hue: light.state.hue}).catch((err) => {
 						console.log(err);
 					});
 					light.changed = false;
@@ -292,7 +294,7 @@ export default {
 				console.log('radius', this.outlinePoints.boundingSphere.radius);
 				this.lightToConfigure.position = this.outlinePoints.boundingSphere.center;
 				// test: multiply with 0.90 to compensate for space between lamp and controller when drawing circle
-				this.lightToConfigure.radius = this.outlinePoints.boundingSphere.radius * 1.0;
+				this.lightToConfigure.radius = this.outlinePoints.boundingSphere.radius * 1.1;
 				this.hueUser.setLightState(this.lightToConfigure.number, {alert: 'select'});
 				
 				
@@ -365,7 +367,7 @@ export default {
 			// let state = await this.hueUser.getLight(light.number);
 			// console.log(evt.type);
 			if(evt.type === 'mouseenter') {
-				
+				console.log('mouseenter');
 				this.hoveredLight = light;
 				light.previousColor = {
 					hue: light.state.bri,
@@ -373,16 +375,20 @@ export default {
 					bri: light.state.bri
 				};
 				// Create subtle hover effect by dimming up/down
-				light.state.bri = light.state.bri <= 245 ? light.state.bri + 10 : light.state.bri - 10;
+				light.state.bri = light.state.bri <= 200 ? light.state.bri + 50 : light.state.bri - 50;
+				light.changed = true;
 				
 			} else if (evt.type === 'mouseleave') {
+				console.log('mouseleave');
 				this.hoveredLight = undefined;
 				// Restore previous light if not changed.
-				if(!light.changed) {
+				if(!light.changed) { //FIXME: changed is reset/false when light changes...
 					light.state.bri = light.previousColor.bri;
+					light.changed = true;
 				}
 			}
-			// this.queueSyncLights();
+			
+			this.syncLights();
 			
 		}
 	}
@@ -446,8 +452,8 @@ function addIndex(light, index) {
 
 <style>
 a-scene {
-	width: 500px;
-	height: 500px;
+	width: 400px;
+	height: 400px;
 }
 .hidden {
 	display: none;
