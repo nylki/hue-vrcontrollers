@@ -4,7 +4,7 @@
 	<div id="app">
 		<div id="connectStatus">
 			<span>{{connectMessage}}</span><br>
-			<button type="button" name="button" v-on:click="resetConfiguration($event)">reset</button>
+			<button type="button" name="button" @click="resetConfiguration($event)">reset</button>
 		</div>
 		
 		
@@ -14,10 +14,10 @@
 			
 			<div id="bridgeForm">
 				<input type="text" name="bridgeAddress" v-model="bridgeAddress">
-				<button type="button" name="connectBridgeBtn" v-on:click="connectBridge()">connect</button>
+				<button type="button" name="connectBridgeBtn" @click="connectBridge()">connect</button>
 			</div>
 			
-			<span id="discoverBridgeLink" v-on:click="discoverBridge()">
+			<span id="discoverBridgeLink" @click="discoverBridge()">
 				Attempt automatic discovering
 			</span>
 			
@@ -27,15 +27,16 @@
 			<div class="introduction">
 				Configure light positions below. Positions are saved locally in your browser for future sessions.
 			</div>
-			<button type="button" name="resetAll" v-on:click="resetConfiguration($event)"></button>
+			<button type="button" name="resetAll" @click="resetConfiguration($event)"></button>
 			<div class="lightList">
 				<template v-for="light in lights">
 					<span>{{light.number}}</span>
-					<span :style="{backgroundColor:light.color}">{{light.name}}</span><span>{{light.position}}</span><span>{{light.color}}</span><button type="button" v-on:click="configureLight($event, light)">position with controller</button>
+					<span :style="{backgroundColor:light.color}">{{light.name}}</span><span>{{light.position}}</span><span>{{light.color}}</span><button type="button" @click="configureLight($event, light)">position with controller</button>
 					<br><br>
 				</template>
 			</div>
 			
+			<button type="button" name="recalibrate" @click="repositionAllBasedOnCalibrationLight()">recalibrate</button>
 			
 			
 		</template>
@@ -48,15 +49,15 @@
 			<a-sky color="#dad6d6"></a-sky>
 			<template v-for="light in configuredLights">
 				<a-text :value="light.name" :position="light.position | stringPos"></a-text>
-				<a-sphere class="lights" :number="light.number" :id="light.uuid" :radius="light.radius" :color="light.color" :position="light.position | stringPos" v-on:mouseenter="hoverLight($event, light)"
-				v-on:mouseleave="hoverLight($event, light)"
-				v-on:click="toggleLight($event, light)"></a-sphere>
+				<a-sphere class="lights" :number="light.number" :id="light.uuid" :radius="light.radius" :color="light.color" :position="light.position | stringPos" @mouseenter="hoverLight($event, light)"
+				@mouseleave="hoverLight($event, light)"
+				@click="toggleLight($event, light)"></a-sphere>
 			</template>
 			
-			<a-entity id="rightHand" v-on:axismove="axismove($event)" v-on:buttondown="buttonDown($event)" v-on:buttonup="buttonUp($event)" hand-controls="right" controller-cursor>
+			<a-entity id="rightHand" @axismove="axismove($event)" @buttondown="buttonDown($event)" @buttonup="buttonUp($event)" hand-controls="right" controller-cursor>
 			</a-entity>
 			
-			<a-entity id="leftHand" v-on:axismove="axismove($event)" v-on:buttondown="buttonDown($event)" v-on:buttonup="buttonUp($event)" hand-controls="left" controller-cursor>
+			<a-entity id="leftHand" @axismove="axismove($event)" @buttondown="buttonDown($event)" @buttonup="buttonUp($event)" hand-controls="left" controller-cursor>
 			</a-entity>
 			
 			<a-plane color="rgb(119, 119, 119)" height="100" width="100" rotation="-90 0 0"></a-plane>
@@ -69,7 +70,7 @@
 
 
 <script>
-import AFRAME from 'aframe';
+// import AFRAME from 'aframe'; // doesn not allow embedded mode? so use script tag instead for now
 import controllerCursor from 'aframe-controller-cursor-component';
 AFRAME.registerComponent('aframe-controller-cursor-component', controllerCursor);
 import jshue from './jshue.js';
@@ -85,6 +86,7 @@ export default {
 		return {
 			lights: [],
 			configuredLights: [],
+			calibrationLight: undefined,
 			outlinePoints: [],
 			hoveredLight: undefined,
 			lastSync: new Date(),
@@ -185,9 +187,20 @@ export default {
 			console.log('resetConfig');
 			idbKeyval.delete('bridgeAddress');
 			idbKeyval.delete('configuredLights');
+			this.lights = [];
+			this.configuredLights = [];
+			this.calibrationLight = undefined;
 			this.bridgeAddress = '';
 			this.bridgeAddress = undefined;
 			this.connectStatus = 'disconnected';
+		},
+		
+		repositionAllBasedOnCalibrationLight: function () {
+			for (let light of this.configuredLights) {
+				if(light === this.calibrationLight) continue;
+				light.position = new THREE.Vector3().addVectors(this.calibrationLight.position, light.relativePosition);
+			}
+			
 		},
 		
 		pullLights: async function () {
@@ -199,6 +212,7 @@ export default {
 			console.log(storedLights, bridgeLights);
 			if(Object.keys(bridgeLights).length === 0) {
 				console.error('No lights found @ configured bridge!');
+				return;
 			}
 			
 			// Merge Bridge light info into position light info
@@ -216,6 +230,9 @@ export default {
 				light.number = parseInt(index);
 				this.lights.push(light);
 			}
+			
+			this.calibrationLight = this.configuredLights[0];
+			this.repositionAllBasedOnCalibrationLight();
 			
 		},
 		syncLights: function () {
@@ -292,9 +309,31 @@ export default {
 				this.outlinePoints.computeBoundingSphere();
 				console.log('center:', this.outlinePoints.boundingSphere.center);
 				console.log('radius', this.outlinePoints.boundingSphere.radius);
+				
 				this.lightToConfigure.position = this.outlinePoints.boundingSphere.center;
-				// test: multiply with 0.90 to compensate for space between lamp and controller when drawing circle
 				this.lightToConfigure.radius = this.outlinePoints.boundingSphere.radius * 1.1;
+
+				
+				if(this.configuredLights.length === 0) {
+					// if it is the first light to be configured
+					// use it as the calibration point for all additional lights
+					console.log('IS FIRST LIGHT');
+					this.calibrationLight = this.lightToConfigure;
+				}
+				
+				if (this.lightToConfigure === this.calibrationLight) {
+					console.log('IS CALIBRATION LIGHT');
+
+					if(this.configuredLights.length > 1 && this.calibrationMode) {
+						this.repositionAllBasedOnCalibrationLight();
+					} else {
+						// Just set light 1 (calibration light) to new position
+						// so we keep all other lights position but adjust their relative position
+						// to calibration light.
+						this.configuredLights.forEach(this.setRelativePosition);
+					}
+				}
+				
 				this.hueUser.setLightState(this.lightToConfigure.number, {alert: 'select'});
 				
 				
@@ -305,7 +344,10 @@ export default {
 				}
 				
 				console.log('configured lights');
-				idbKeyval.set('configuredLights', this.configuredLights);
+				// save relative position to the calibrationLight for later sessions
+				// used when calling recalibrate
+				this.setRelativePosition(this.lightToConfigure);
+				this.updateIDB();
 				this.configureLightMode = false;
 				this.lightToConfigure = undefined;
 			}
@@ -390,55 +432,53 @@ export default {
 			
 			this.syncLights();
 			
+		},
+		
+		setRelativePosition: function(light) {
+			light.relativePosition = new THREE.Vector3().subVectors(this.calibrationLight.position, light.position);
+		},
+		
+		updateIDB: function() {
+			
+			idbKeyval.set('configuredLights', this.configuredLights);
 		}
 	}
 };
 
-
-// Starts the setup in which the hueUser can place virtual lights
-// in his room with the VR controllers.
-function startLightSetup() {
-	
-}
-
-function pointDown(e) {
-	console.log(e);
-}
-
-function hueGammaCorrection(value) {
-	return (value > 0.04045) ? Math.pow((value + 0.055) / (1.0 + 0.055), 2.4) : (value / 12.92);
-}
-
-function hueReverseGammaCorrection(value) {
-	return (value <= 0.0031308) ? 12.92 * value : (1.0 + 0.055) * Math.pow(value, (1.0 / 2.4)) - 0.055;
-}
-
-
-
-function hueGlToXY(rgb) {
-	rgb = rgb.map(hueGammaCorrection);
-	let [r, g, b] = rgb;
-	let x = r * 0.664511 + g * 0.154324 + b * 0.162028;
-	let y = r * 0.283881 + g * 0.668433 + b * 0.047685;
-	let z = r * 0.000088 + g * 0.072310 + b * 0.986039;
-	x = x / (x + y + z);
-	y = y / (x + y + z);
-	return [x,y];
-}
-
-function hueXYtoGl([x, y]) {
-	let z =  1.0 - x - y;
-	
-	let y_ = 1.0;//brightness
-	let x_ = (y / y_) * x;
-	let z_ = (y_ / y) * z;
-	
-	let r =  x_ * 1.656492 - y_ * 0.354851 - z_ * 0.255038;
-	let g = -x_ * 0.707196 + y_ * 1.655397 + z_ * 0.036152;
-	let b =  x_ * 0.051713 - y_ * 0.121364 + z_ * 1.011530;
-	
-	return [r, g, b].map(hueReverseGammaCorrection);
-}
+// function hueGammaCorrection(value) {
+// 	return (value > 0.04045) ? Math.pow((value + 0.055) / (1.0 + 0.055), 2.4) : (value / 12.92);
+// }
+//
+// function hueReverseGammaCorrection(value) {
+// 	return (value <= 0.0031308) ? 12.92 * value : (1.0 + 0.055) * Math.pow(value, (1.0 / 2.4)) - 0.055;
+// }
+//
+//
+//
+// function hueGlToXY(rgb) {
+// 	rgb = rgb.map(hueGammaCorrection);
+// 	let [r, g, b] = rgb;
+// 	let x = r * 0.664511 + g * 0.154324 + b * 0.162028;
+// 	let y = r * 0.283881 + g * 0.668433 + b * 0.047685;
+// 	let z = r * 0.000088 + g * 0.072310 + b * 0.986039;
+// 	x = x / (x + y + z);
+// 	y = y / (x + y + z);
+// 	return [x,y];
+// }
+//
+// function hueXYtoGl([x, y]) {
+// 	let z =  1.0 - x - y;
+//
+// 	let y_ = 1.0;//brightness
+// 	let x_ = (y / y_) * x;
+// 	let z_ = (y_ / y) * z;
+//
+// 	let r =  x_ * 1.656492 - y_ * 0.354851 - z_ * 0.255038;
+// 	let g = -x_ * 0.707196 + y_ * 1.655397 + z_ * 0.036152;
+// 	let b =  x_ * 0.051713 - y_ * 0.121364 + z_ * 1.011530;
+//
+// 	return [r, g, b].map(hueReverseGammaCorrection);
+// }
 
 
 
