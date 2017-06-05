@@ -4,7 +4,8 @@
 	<div id="app">
 		<div id="connectStatus">
 			<span>{{connectMessage}}</span><br>
-			<button type="button" name="button" @click="resetConfiguration($event)">reset</button>
+			<button type="button" name="resetBtn" @click="resetConfiguration($event)">reset</button>
+			<button type="button" name="configureBtn" @click="configureLightMode = !configureLightMode">edit</button>
 		</div>
 		
 		
@@ -31,7 +32,13 @@
 			<div class="lightList">
 				<template v-for="light in lights">
 					<span>{{light.number}}</span>
-					<span :style="{backgroundColor:light.color}">{{light.name}}</span><span>{{light.position}}</span><span>{{light.color}}</span><button type="button" @click="configureLight($event, light)">position with controller</button>
+					<span :style="{backgroundColor:light.color}">{{light.name}}</span>
+					<span>{{light.position}}</span>
+					<span>{{light.color}}</span>
+					
+					<template v-if="configureLightMode">
+						<button type="button" @click="configureLight(light, $event )">position</button>
+					</template>
 					<br><br>
 				</template>
 			</div>
@@ -54,10 +61,10 @@
 				@click="toggleLight($event, light)"></a-sphere>
 			</template>
 			
-			<a-entity id="rightHand" @axismove="axismove($event)" @buttondown="buttonDown($event)" @buttonup="buttonUp($event)" hand-controls="right" controller-cursor>
+			<a-entity id="rightHand" @axismove="axismove($event)" @triggerdown="buttonDown($event)" @triggerup.stop="buttonUp($event)" @trackpaddown="trackpadDown($event)" vive-controls="hand: right" controller-cursor>
 			</a-entity>
 			
-			<a-entity id="leftHand" @axismove="axismove($event)" @buttondown="buttonDown($event)" @buttonup="buttonUp($event)" hand-controls="left" controller-cursor>
+			<a-entity id="leftHand" @axismove="axismove($event)" @triggerdown="buttonDown($event)" @triggerup.stop="buttonUp($event)" @trackpaddown="trackpadDown($event)" vive-controls="hand: left" controller-cursor>
 			</a-entity>
 			
 			<a-plane color="rgb(119, 119, 119)" height="100" width="100" rotation="-90 0 0"></a-plane>
@@ -79,6 +86,10 @@ import idbKeyval from 'idb-keyval';
 
 const hue = jshue();
 const SYNC_DELAY = 90; // Time between a sync call to the bridge for color changes
+const RED = Math.round( chroma('#ff0000').hsv()[0] * (65535 / 360) );
+const YELLOW = Math.round( chroma('#ffed00').hsv()[0] * (65535 / 360) );
+const GREEN = Math.round( chroma('#33ff00').hsv()[0] * (65535 / 360) );
+
 
 export default {
 	name: 'app',
@@ -94,7 +105,8 @@ export default {
 			bridgeAddress: '',
 			connectStatus: 'disconnected',
 			connectMessage: '',
-			collectPointsInterval: null
+			collectPointsInterval: null,
+			configureLightMode: false
 		};
 	},
 	computed: {
@@ -236,19 +248,21 @@ export default {
 			
 		},
 		syncLights: function () {
+			console.log('sync lights');
+			let promises = [];
 			clearTimeout(this.syncTimeout);
 			this.syncTimeout = null;
 			this.lastSync = new Date();
 			for (let light of this.configuredLights) {
+				console.log(light.changed, light.number);
 				if(light.changed !== undefined && light.changed === true) {
-					console.log();
-					this.hueUser.setLightState(light.number, {sat: 255, bri: light.state.bri, hue: light.state.hue}).catch((err) => {
-						console.log(err);
-					});
+					let p = this.hueUser.setLightState(light.number, {sat: 255, bri: light.state.bri, hue: light.state.hue});
+					p.catch(console.log);
+					promises.push(p);
 					light.changed = false;
 				}
-
 			}
+			return Promise.all(promises);
 			
 		},
 		
@@ -274,15 +288,33 @@ export default {
 		},
 		
 		
-		configureLight: function (evt, light) {
-			console.log('set up', light);
+		configureLight: function (l, evt) {
+			console.log('set up', l.number);
 			this.configureLightMode = true;
-			this.lightToConfigure = light;
+			this.lightToConfigure = l;
+			let lightOffPromise = [];
+			
+			// Use scene 0 to change all at once
+			for (let l of this.lights) {
+				if(l.number === 7 || l.number === this.lightToConfigure.number) continue;
+				l.previousState = Object.assign({}, l.state);
+				lightOffPromise.push(this.hueUser.setLightState(l.number, {on: true, bri:0, sat:0}));
+			}
+
+			// TODO: improve this!
+			Promise.all(lightOffPromise).then(() => {
+				this.hueUser.setLightState(this.lightToConfigure.number, {hue: RED, sat:250, bri: 250, on: true});
+			})
+
+
 			console.log(this.lightToConfigure);
 		},
 		
 		buttonDown: function (evt) {
+			console.log(evt);
 			console.log('controller click');
+			
+			// CHECK IF IT IS TRACKPAD CLICK
 			
 			if(this.configureLightMode && this.lightToConfigure !== undefined) {
 				// Set the lights position to controllers position
@@ -290,10 +322,13 @@ export default {
 				this.collectPointsInterval = setInterval(() => {
 					this.addPoint(evt.target);
 				}, 50);
+				
+					this.hueUser.setLightState(this.lightToConfigure.number, {hue: YELLOW});
+					this.queueSyncLights();
 			}
 		},
 		buttonUp: function (evt) {
-			
+			console.log('triggerup');
 			if((this.configureLightMode && this.lightToConfigure !== undefined && this.collectPointsInterval)) {
 				
 				clearInterval(this.collectPointsInterval);
@@ -311,7 +346,7 @@ export default {
 				console.log('radius', this.outlinePoints.boundingSphere.radius);
 				
 				this.lightToConfigure.position = this.outlinePoints.boundingSphere.center;
-				this.lightToConfigure.radius = this.outlinePoints.boundingSphere.radius * 1.1;
+				this.lightToConfigure.radius = this.outlinePoints.boundingSphere.radius * 1.2;
 
 				
 				if(this.configuredLights.length === 0) {
@@ -333,8 +368,18 @@ export default {
 						this.configuredLights.forEach(this.setRelativePosition);
 					}
 				}
+				// configured! Make current light green for a moment, let it flash then restore
+				//  all lights to their previous state
+				//  TODO: instead of setting light state directly let it handle by the syncLights
+				//  and diffing the changes there?
+				this.hueUser.setLightState(this.lightToConfigure.number, {hue: GREEN, alert: 'select'}).then(() => {
+					this.lights.forEach((light) => {
+						this.hueUser.setLightState(light.number, light.previousState.on);
+						// light.state = Object.assign({}, light.previousState);
+					});
+				});
+
 				
-				this.hueUser.setLightState(this.lightToConfigure.number, {alert: 'select'});
 				
 				
 				// If light has not been configured yet, add it to the configuredLights list
@@ -348,8 +393,23 @@ export default {
 				// used when calling recalibrate
 				this.setRelativePosition(this.lightToConfigure);
 				this.updateIDB();
-				this.configureLightMode = false;
-				this.lightToConfigure = undefined;
+				console.log(0);
+				this.configureLight(this.lights[this.lightToConfigure.number + 1]);
+				console.log(1);
+				// this.lightToConfigure = undefined;
+			}
+		},
+		
+		trackpadDown: function(evt, el) {
+			let direction = evt.target.lastAxis[0] <= 0 ? 'left' : 'right';
+			console.log('trackpad down:', direction);
+			console.log('light length', this.lights.length);
+			if(this.configureLightMode) {
+				let nextLightNumber = this.lightToConfigure.number + (direction === 'left' ? -1 : 1) % this.lights.length;
+				nextLightNumber = Math.max(nextLightNumber, 1);
+				nextLightNumber = Math.min(nextLightNumber, this.lights.length - 1);
+				console.log(this.lightToConfigure.number, '->', nextLightNumber);
+				this.configureLight(this.lights[nextLightNumber-1]);
 			}
 		},
 		
@@ -359,14 +419,14 @@ export default {
 			let numPoints = this.outlinePoints.vertices.length;
 			if(numPoints !== 0) {
 				let dist = controllerPos.distanceTo(this.outlinePoints.vertices[numPoints-1]);
-				console.log('distance', dist);
+				// console.log('distance', dist);
 				// dont add point if too close or too far away to previous point
 				// to prevent overly large array, respectively flaky position info from the controller
 				if(dist < 0.01 || dist > 1.0) return;
 			}
 			this.outlinePoints.vertices.push(controllerPos);
 			// this.outlinePoints.push(controllerPos);
-			console.log(this.outlinePoints.vertices);
+			// console.log(this.outlinePoints.vertices);
 		},
 		
 		compressPoints: function () {
@@ -378,12 +438,16 @@ export default {
 				return this.hueUser.setLightState(light.number, {on: !state.on});
 			});
 		},
-		axismove: function (evt, el) {
+		axismove: function (evt) {
+			
 			// console.log(evt.detail.axis);
 			// FIXME: for some reason there is always a 0,0 axis event triggered at the end
 			// maybe open issue at aframe?
-			if(evt.detail.axis[0] === 0 && evt.detail.axis[1] === 0) return;
+			if((evt.detail.axis[0] === 0 && evt.detail.axis[1] === 0)) return;
 			let axis = evt.detail.axis;
+			evt.target.lastAxis = axis;
+			if(this.configureLightMode) return;
+			
 			let vec = new THREE.Vector2(axis[0], axis[1]);
 			let angle = vec.angle() * 180/Math.PI;
 			// console.log(angle);
@@ -406,6 +470,7 @@ export default {
 		
 		hoverLight: async function (evt, light) {
 			
+			if(this.configureLightMode) return;
 			// let state = await this.hueUser.getLight(light.number);
 			// console.log(evt.type);
 			if(evt.type === 'mouseenter') {

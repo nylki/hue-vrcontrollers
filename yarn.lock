@@ -37,9 +37,9 @@ acorn@^5.0.0, acorn@^5.0.1:
   version "5.0.3"
   resolved "https://registry.yarnpkg.com/acorn/-/acorn-5.0.3.tgz#c460df08491463f028ccb82eab3730bf01087b3d"
 
-aframe-controller-cursor-component@^0.2.6:
-  version "0.2.6"
-  resolved "https://registry.yarnpkg.com/aframe-controller-cursor-component/-/aframe-controller-cursor-component-0.2.6.tgz#4b472460d1a0e3603d3f6b2e5112d37ac6fca3ee"
+aframe-controller-cursor-component@^0.2.7:
+  version "0.2.7"
+  resolved "https://registry.yarnpkg.com/aframe-controller-cursor-component/-/aframe-controller-cursor-component-0.2.7.tgz#80ed5aec6b8a58961a766cae0d9eb79a5f406534"
 
 aframe@^0.5.0:
   version "0.5.0"
