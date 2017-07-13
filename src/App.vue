@@ -6,6 +6,8 @@
 			<span>{{connectMessage}}</span>
 		</div>
 		
+		<button type="button" name="resetBtn" @click="resetConfiguration($event)">reset</button>
+		
 		
 		<div id="connectBox" v-if="connectStatus !== 'connected'">
 			
@@ -24,7 +26,7 @@
 		
 		<template v-if="connectStatus === 'connected'">
 			
-			<button type="button" name="resetBtn" @click="resetConfiguration($event)">reset</button><br>
+			<br>
 			<button type="button" name="configureBtn" @click="toggleConfiguration($event)">{{configureLightMode ? 'done' : 'configure lights'}}</button>
 			
 			<div id="configureModal" v-if="configureLightMode">
@@ -130,6 +132,8 @@ export default {
 				return `Connecting to bridge @ ${this.bridgeAddress}, connecting…`;
 			} else if (this.connectStatus === 'error') {
 				return 'Error connecting to brige. Are you sure the IP-Address of your bridge is correct?';
+			} else if (this.connectStatus === 'userRegistration') {
+				return 'PLEASE PRESS THE LINK BUTTON TO USE THE APP.';
 			}
 		}
 	},
@@ -179,18 +183,28 @@ export default {
 			console.log('connectBridge');
 			this.connectStatus = 'connecting';
 			this.bridge = hue.bridge(this.bridgeAddress);
-			this.hueUser = this.bridge.user('lampe-bash');
-			let self = this;
+			
+			// Get bridge user from idb, or if not present, create new
+			let username = idbKeyval.get('username');
+			if(username === undefined) {
+				this.connectStatus = 'userRegistration';
+				username = await bridge.createUser('myApp#testdevice')[0].success.username;
+				dbKeyval.set('username', username);
+			}
+			
+			this.hueUser = this.bridge.user(username);
+			
+
 			
 			return new Promise(async (resolve, reject) => {
 				
-				let timeout = setTimeout(handleError, 5000);
-				
-				function handleError() {
-					self.connectStatus = 'error';
-					console.log('Error getting config from bridge');
+				function handleError(e) {
+					this.connectStatus = 'error';
+					console.log('Error getting config from bridge:', e);
 					reject();
 				}
+				
+				let timeout = setTimeout(handleError.bind(this, 'timeout'), 5000);
 				
 				try {
 					var config = await this.hueUser.getConfig();
@@ -200,18 +214,14 @@ export default {
 					await this.pullLights();
 
 					if(this.firstStart) {
-						console.log('FIRST START');
 						this.toggleConfiguration();
 					} else {
-						console.log('NOT FIRST');
 						this.startCalibrationMode();
 					}
 					
 					resolve();
 				} catch (e) {
-					console.log('catched error');
-					console.log(e);
-					handleError();
+					handleError.bind(this)(e);
 				} finally {
 					clearTimeout(timeout);
 				}
@@ -220,10 +230,12 @@ export default {
 			
 		},
 		
-		resetConfiguration: function () {
+		resetConfiguration: async function () {
 			console.log('resetConfig');
-			idbKeyval.delete('bridgeAddress');
-			idbKeyval.delete('configuredLights');
+			
+			let keys = await idbKeyval.keys();
+			keys.forEach(key => idbKeyval.delete(key));
+			
 			this.lights = [];
 			this.configuredLights = [];
 			this.calibrationLight = undefined;
@@ -232,6 +244,8 @@ export default {
 			this.connectStatus = 'disconnected';
 			this.firstStart = true;
 			this.calibrationMode = false;
+			
+			
 		},
 		
 		startCalibrationMode: function () {
@@ -255,7 +269,6 @@ export default {
 			
 			let storedPromise = idbKeyval.get('configuredLights');
 			let calibrationLightNumber = await idbKeyval.get('calibrationLightNumber');
-			console.log('HELLO');
 			
 			let bridgePromise = this.hueUser.getLights();
 			let [storedLights=[], bridgeLights] = await Promise.all([storedPromise, bridgePromise]);
@@ -289,11 +302,11 @@ export default {
 			
 		},
 		syncLights: function () {
-			console.log('sync lights');
 			let promises = [];
 			clearTimeout(this.syncTimeout);
 			this.syncTimeout = null;
 			this.lastSync = new Date();
+			
 			for (let light of this.configuredLights) {
 				console.log(light.changed, light.number);
 				if(light.changed !== undefined && light.changed === true) {
@@ -313,7 +326,6 @@ export default {
 			// otherwise try to sync lights now or schedule a timeout for soonish execution
 			// console.log('quue sync lights');
 			if(!this.syncTimeout) {
-				// console.log('no timeout');
 				let now = new Date();
 				let diff = now - this.lastSync;
 				if(diff >= SYNC_DELAY) {
@@ -339,8 +351,7 @@ export default {
 		
 		
 		configureLight: function (l, evt) {
-			console.log(this);
-			console.log('set up', l.number);
+			console.log('set up light number', l.number);
 			this.lightToConfigure = l;
 			
 			let lightOffPromise = [];
